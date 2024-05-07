@@ -27,18 +27,17 @@ def build_index(documents) -> dict[str, list[Posting]]:
 
 # Parse the json file and return the tokens from the file
 def parse(document) -> list[str]:
-    # Probably want to use the tokenizer in this func somewhere
-    tokens = []
     try:
         with open(document, 'r') as file:
             # Create json object (can access object like a dictionary)
             json_object = json.load(file)
-            print("Json File:", file.name)
-            print(" Url:", json_object["url"])
-            print(" Encoding:", json_object["encoding"])
-            # Parse content using bs4
-            # Use json_object["content"]
-            print()
+            # print("Json File:", file.name)
+            # print(" Url:", json_object["url"])
+            # print(" Encoding:", json_object["encoding"])
+            # Parse content using bs4 (passing in json_object["content"])
+            soup = BeautifulSoup(json_object["content"], "lxml")
+            tokens = _tokenized(soup.get_text())
+            return tokens
     except FileNotFoundError:
         print("File " + document + " not found")
     except json.JSONDecodeError as json_err:
@@ -46,11 +45,12 @@ def parse(document) -> list[str]:
     except Exception as err:
         print(err)
 
-    return tokens
+    # If there is an error, just return an empty list
+    return []
 
 
 # Code for tokenizing when we have file path instead
-def tokenize(TextFilePath): 
+def tokenize(TextFilePath):
     token_list = []
     # Opens file to be read byte by byte also catches error if file path is incorrect or wrong type
     try:
@@ -79,8 +79,7 @@ def tokenize(TextFilePath):
 def _tokenized(text_string):
     token_list = []
     current_token = ""
-    while (text_string):
-        char = text_string[0] # Reads first char
+    for char in text_string:
         # Currently only breaking up tokens by if the current char is a letter used in any alphabet, not only english
         # Easily changed by altering the if statement below
         if char.isalpha():
@@ -90,7 +89,6 @@ def _tokenized(text_string):
             if len(current_token) != 0:
                 token_list.append(current_token.lower())
             current_token = ""
-        text_string[1:]
         
     if len(current_token) != 0:
         token_list.append(current_token.lower())
@@ -113,4 +111,7 @@ if __name__ == "__main__":
     # Transform the relative paths into absolute paths
     files = [os.path.join(path, document) for document in os.listdir(path)]
     table = build_index(files)
+    # Print each token in the table (sorted by alphabetical order)
+    for k, v in sorted(table.items(), key=lambda item: item[0]):
+        print(k, ":", v)
     # print(table)
