@@ -1,8 +1,12 @@
+import json
+import os
+import sys
+from bs4 import BeautifulSoup
 from posting import Posting
 
 
 # Skeleton code from lecture slides
-def build_index(documents):
+def build_index(documents) -> dict[str, list[Posting]]:
     # Create hashtable
     # Mapping = token: posting (document id)
     hashtable = {}
@@ -10,7 +14,7 @@ def build_index(documents):
     for n, document in enumerate(documents):
         # T <- Parse documents
         # Remove duplicates from T
-        tokens = set(tokenize(document))
+        tokens = set(parse(document))
         # Add each token to the hashtable
         for token in tokens:
             # Initialize new tokens
@@ -19,6 +23,30 @@ def build_index(documents):
             # Map each token to its posting (which contains this document's id)
             hashtable[token].append(Posting(n, 0))
     return hashtable
+
+
+# Parse the json file and return the tokens from the file
+def parse(document) -> list[str]:
+    # Probably want to use the tokenizer in this func somewhere
+    tokens = []
+    try:
+        with open(document, 'r') as file:
+            # Create json object (can access object like a dictionary)
+            json_object = json.load(file)
+            print("Json File:", file.name)
+            print(" Url:", json_object["url"])
+            print(" Encoding:", json_object["encoding"])
+            # Parse content using bs4
+            # Use json_object["content"]
+            print()
+    except FileNotFoundError:
+        print("File " + document + " not found")
+    except json.JSONDecodeError as json_err:
+        print(json_err.msg)
+    except Exception as err:
+        print(err)
+
+    return tokens
 
 
 # Code for tokenizing when we have file path instead
@@ -77,3 +105,12 @@ def _computeWordWeights(tokens_list):
     for token in tokens_list:
         # Checks the value of the token in the dictionary and sets it to the appropriate value either 1 or +1
         word_freq[token] = word_freq.get(token,0)  + 1
+
+
+if __name__ == "__main__":
+    # Path to the folder containing the documents
+    path = sys.argv[1]
+    # Transform the relative paths into absolute paths
+    files = [os.path.join(path, document) for document in os.listdir(path)]
+    table = build_index(files)
+    # print(table)
