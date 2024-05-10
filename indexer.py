@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from bs4 import BeautifulSoup
+from nltk import PorterStemmer
 from posting import Posting
 
 
@@ -22,6 +23,10 @@ def build_index(documents) -> dict[str, list[Posting]]:
                 hashtable[token] = []
             # Map each token to its posting (which contains this document's id)
             hashtable[token].append(Posting(n, 0))
+        # if len(hashtable) >= 250:
+        #     unload_table(hashtable)
+        #     del hashtable
+        #     hashtable = {}
     return hashtable
 
 
@@ -35,8 +40,11 @@ def parse(document) -> list[str]:
             # print(" Url:", json_object["url"])
             # print(" Encoding:", json_object["encoding"])
             # Parse content using bs4 (passing in json_object["content"])
-            soup = BeautifulSoup(json_object["content"], "lxml")
-            tokens = _tokenized(soup.get_text())
+            soup = BeautifulSoup(json_object["content"], "lxml")    # Do we need to use the encoding for this step?
+            # Find all important text (bold text and header text)
+            content = soup.find_all(["strong", "b", "h1", "h2", "h3"])
+            # FIXME: Also find a way to get the rest of the text besides the important text
+            tokens = _tokenized(" ".join([text.get_text() for text in content]))    # Need to stem the words before this
             return tokens
     except FileNotFoundError:
         print("File " + document + " not found")
@@ -47,6 +55,27 @@ def parse(document) -> list[str]:
 
     # If there is an error, just return an empty list
     return []
+
+
+# def unload_table(hashtable) -> None:
+#     global word_count
+#     try:
+#         path = "C:\\Users\\Ivan Onofre\\University\\CS 121 - INF 141\\cs121-a3\\indexes.json"
+#         if not path.endswith(".json"):
+#             raise Exception("Must unload data onto a json file")
+#         with open(path, "a") as json_file:
+#             for term, postings in hashtable.items():
+#                 json_object = json.loads('{"' +
+#                                          term + '": {' +
+#                                          ','.join([
+#                                              '"' + str(posting.document_id) + '": ' +
+#                                              str(posting.tfidf_score) for posting in postings]) +
+#                                          '} }')
+#                 json.dump(json_object, json_file)
+#                 # FIXME: Need to find a way to merge files so that previously added terms are updated
+#                 word_count += 1
+#     except Exception as err:
+#         print(err)
 
 
 # Code for tokenizing when we have file path instead
@@ -106,12 +135,19 @@ def _computeWordWeights(tokens_list):
 
 
 if __name__ == "__main__":
+    word_count = 0
     # Path to the folder containing the documents
-    path = sys.argv[1]
+    folder_path = sys.argv[1]
     # Transform the relative paths into absolute paths
-    files = [os.path.join(path, document) for document in os.listdir(path)]
+    files = []
+    for root, _, filenames in os.walk(folder_path):
+        for file in filenames:
+            file_path = os.path.join(root, file)
+            files.append(file_path)
+
     table = build_index(files)
-    # Print each token in the table (sorted by alphabetical order)
-    for k, v in sorted(table.items(), key=lambda item: item[0]):
-        print(k, ":", v)
-    # print(table)
+    # # Print each token in the table (sorted by alphabetical order)
+    # for k, v in sorted(table.items(), key=lambda item: item[0]):
+    #     print(k, ":", v)
+    print("The number of indexed documents:", len(files))
+    print("The number of unique words:", word_count)

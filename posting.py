@@ -4,7 +4,7 @@ class Posting:
         self.tfidf_score = score
 
     def __str__(self):
-        return f"{self.document_id}: {self.tfidf_score}"
+        return f'"{self.document_id}": {self.tfidf_score}'
 
     def __repr__(self):
-        return self.__str__()
+        return f"id={self.document_id}: score={self.tfidf_score}"
