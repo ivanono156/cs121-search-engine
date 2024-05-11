@@ -22,15 +22,16 @@ def build_index(documents) -> dict[str, list[Posting]]:
     for n, document in enumerate(documents):
         # T <- Parse documents
         # Remove duplicates from T
-        tokens = set(parse(document))
+        tokens = parse(document)
         # Add each token to the hashtable
         for token in tokens:
             # Initialize new tokens
             unique_words.add(token)
+            wordFreqDoc = tokens[token]
             if token not in hashtable:
                 hashtable[token] = []
             # Map each token to its posting (which contains this document's id)
-            hashtable[token].append(Posting(n, 0))
+            hashtable[token].append(Posting(n, wordFreqDoc))
         if counter >= 800:
             unload_to_disk(hashtable,offload_count)
             offload_count += 1
@@ -48,7 +49,7 @@ def build_index(documents) -> dict[str, list[Posting]]:
 
 
 # Parse the json file and return the tokens from the file
-def parse(document) -> list[str]:
+def parse(document) -> dict[str, int]:
     try:
         with open(document, 'r') as file:
             # Create json object (can access object like a dictionary)
@@ -111,8 +112,14 @@ def merge_partial_indexes(off_count):
 def _tokenized_and_stem(text_string):
     # Apply stemming to each token
     stemmer = PorterStemmer()
+    stemmed_tokens = {}
     tokens = re.findall(r'\b\w+\b', text_string.lower())
-    stemmed_tokens = [stemmer.stem(token) for token in tokens]
+    for token in tokens:
+        revToken = stemmer.stem(token)
+        if revToken not in stemmed_tokens:
+            stemmed_tokens[revToken] = 1
+        else:
+            stemmed_tokens[revToken] += 1
     return stemmed_tokens
 
 if __name__ == "__main__":
@@ -128,7 +135,7 @@ if __name__ == "__main__":
 
     table = build_index(files)
     # # Print each token in the table (sorted by alphabetical order)
-    # for k, v in sorted(table.items(), key=lambda item: item[0]):
-    #     print(k, ":", v)
+    for k, v in sorted(table.items(), key=lambda item: item[0]):
+        print(k, ":", v)
     print("The number of indexed documents:", len(files))
     print("The number of unique words:", len(unique_words))
