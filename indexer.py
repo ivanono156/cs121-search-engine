@@ -14,7 +14,7 @@ def build_index(documents) -> dict[str, list[Posting]]:
     # Mapping = token: posting (document id)
     hashtable = {}
     #Set threshold for when to offload hashtable to json file
-    doc_threshold = 800
+    doc_threshold = 19000
     counter = 0
     offload_count = 0
     # Use enumerate to map each doc to an id (n)
@@ -31,7 +31,7 @@ def build_index(documents) -> dict[str, list[Posting]]:
                 hashtable[token] = []
             # Map each token to its posting (which contains this document's id)
             hashtable[token].append(Posting(n, 0))
-        if counter >= 800:
+        if counter >= doc_threshold:
             unload_to_disk(hashtable,offload_count)
             offload_count += 1
             del hashtable
@@ -106,7 +106,7 @@ def merge_partial_indexes(off_count):
     with open('final_index','w') as file:
         json.dump(final_index, file, indent=4)
         
-    return final_index
+    #return final_index
 # Code to tokenize a document when we have it in string form
 def _tokenized_and_stem(text_string):
     # Apply stemming to each token
