@@ -6,6 +6,7 @@ from nltk import PorterStemmer
 from posting import Posting
 import re
 
+#Global var to keep track of unique words
 unique_words = set()
 # Skeleton code from lecture slides
 def build_index(documents) -> dict[str, list[Posting]]:
@@ -14,7 +15,7 @@ def build_index(documents) -> dict[str, list[Posting]]:
     # Mapping = token: posting (document id)
     hashtable = {}
     #Set threshold for when to offload hashtable to json file
-    doc_threshold = 1000
+    doc_threshold = 18000
     counter = 0
     offload_count = 0
     # Use enumerate to map each doc to an id (n)
@@ -39,12 +40,15 @@ def build_index(documents) -> dict[str, list[Posting]]:
             hashtable = {}
             counter = 0
         counter += 1
+    #Offloads rest of hashtable before returning
     if hashtable:
             unload_to_disk(hashtable,offload_count)
             offload_count += 1
             del hashtable
             hashtable = {}
+    #Merges all partial indexes into one
     hashtable = merge_partial_indexes(offload_count)
+    
     return hashtable
 
 
@@ -60,7 +64,7 @@ def parse(document) -> dict[str, int]:
             # Parse content using bs4 (passing in json_object["content"])
             soup = BeautifulSoup(json_object["content"], "lxml-xml")    # Do we need to use the encoding for this step?
             # Find all important text (bold text and header text)
-            content = soup.find_all(["strong", "b", "h1", "h2", "h3", "h4", "h5", "h6", "em", "p", "ul", "ol", "li", "blockquote", "a", "article", "section"])
+            content = soup.find_all(["strong", "b", "h1", "h2", "h3", "h4", "h5", "h6", "em", "p", "ul", "ol", "li", "blockquote", "a", "article", "section"])#Still need to test for better/more valuable headers
             # FIXME: Also find a way to get the rest of the text besides the important text
             tokens = _tokenized_and_stem(" ".join([text.get_text() for text in content]))   
             return tokens
@@ -89,7 +93,7 @@ def unload_to_disk(index,off_count):
 
 # Merges all partial indexes into one final index file and dictionary
 def merge_partial_indexes(off_count):
-    
+    #Initialize final mapping
     final_index = {}
     
     #Will go through each partial index made and collect the information needed for the final index
@@ -103,11 +107,14 @@ def merge_partial_indexes(off_count):
                 else:
                     final_index[token] = docs
     
-
+    #Opens final index, a combination of all partial ones
     with open('final_index','w') as file:
         json.dump(final_index, file, indent=4)
         
+    #Returns final index, can comment out to save memory?
     return final_index
+
+
 # Code to tokenize a document when we have it in string form
 def _tokenized_and_stem(text_string):
     # Apply stemming to each token
