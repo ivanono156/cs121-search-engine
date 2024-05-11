@@ -13,7 +13,12 @@ def build_index(documents) -> dict[str, list[Posting]]:
     # Create hashtable
     # Mapping = token: posting (document id)
     hashtable = {}
+    #Set threshold for when to offload hashtable to json file
+    doc_threshold = 800
+    counter = 0
+    offload_count = 0
     # Use enumerate to map each doc to an id (n)
+    
     for n, document in enumerate(documents):
         # T <- Parse documents
         # Remove duplicates from T
@@ -26,10 +31,19 @@ def build_index(documents) -> dict[str, list[Posting]]:
                 hashtable[token] = []
             # Map each token to its posting (which contains this document's id)
             hashtable[token].append(Posting(n, 0))
-        # if len(hashtable) >= 250:
-        #     unload_table(hashtable)
-        #     del hashtable
-        #     hashtable = {}
+        if counter >= 800:
+            unload_to_disk(hashtable,offload_count)
+            offload_count += 1
+            del hashtable
+            hashtable = {}
+            counter = 0
+        counter += 1
+    if hashtable:
+            unload_to_disk(hashtable,offload_count)
+            offload_count += 1
+            del hashtable
+            hashtable = {}
+    hashtable = merge_partial_indexes(offload_count)
     return hashtable
 
 
@@ -47,7 +61,7 @@ def parse(document) -> list[str]:
             # Find all important text (bold text and header text)
             content = soup.find_all(["strong", "b", "h1", "h2", "h3"])
             # FIXME: Also find a way to get the rest of the text besides the important text
-            tokens = _tokenized_and_stem(" ".join([text.get_text() for text in content]))    # Need to stem the words before this
+            tokens = _tokenized_and_stem(" ".join([text.get_text() for text in content]))   
             return tokens
     except FileNotFoundError:
         print("File " + document + " not found")
@@ -60,27 +74,39 @@ def parse(document) -> list[str]:
     return []
 
 
-# def unload_table(hashtable) -> None:
-#     global word_count
-#     try:
-#         path = "C:\\Users\\Ivan Onofre\\University\\CS 121 - INF 141\\cs121-a3\\indexes.json"
-#         if not path.endswith(".json"):
-#             raise Exception("Must unload data onto a json file")
-#         with open(path, "a") as json_file:
-#             for term, postings in hashtable.items():
-#                 json_object = json.loads('{"' +
-#                                          term + '": {' +
-#                                          ','.join([
-#                                              '"' + str(posting.document_id) + '": ' +
-#                                              str(posting.tfidf_score) for posting in postings]) +
-#                                          '} }')
-#                 json.dump(json_object, json_file)
-#                 # FIXME: Need to find a way to merge files so that previously added terms are updated
-#                 word_count += 1
-#     except Exception as err:
-#         print(err)
+def unload_to_disk(index,off_count):
+    # Makes each posting serialized into dictionary so can be put in JSOn file
+    serialized_index = {
+        term: [posting.to_dict() for posting in postings] for term, postings in index.items()
+    }
 
+    filename = f"partial_index{off_count}.json"
+    # Write the serialized index to disk
+    with open(filename, 'w') as file:
+        json.dump(serialized_index, file, indent=4)  # Printing with indent of 4 for readability
+    return {}
 
+# Merges all partial indexes into one final index file and dictionary
+def merge_partial_indexes(off_count):
+    
+    final_index = {}
+    
+    #Will go through each partial index made and collect the information needed for the final index
+    for i in range(off_count):
+        filename = f"partial_index{i}.json"
+        with open(filename, 'r') as file:
+            partial_index = json.load(file)
+            for token,docs in partial_index.items():
+                if token in final_index:
+                    final_index[token].extend(docs)
+                else:
+                    final_index[token] = docs
+    
+
+    with open('final_index','w') as file:
+        json.dump(final_index, file, indent=4)
+        
+    return final_index
 # Code to tokenize a document when we have it in string form
 def _tokenized_and_stem(text_string):
     # Apply stemming to each token
@@ -88,16 +114,6 @@ def _tokenized_and_stem(text_string):
     tokens = re.findall(r'\b\w+\b', text_string.lower())
     stemmed_tokens = [stemmer.stem(token) for token in tokens]
     return stemmed_tokens
-    
-
-def _computeWordWeights(tokens_list):
-    # Initializing dictionary/map of the tokens and the number of occurrences
-    word_freq = {}
-    # Iterates through all the values in the token list and updates its value in the corresponding dictionary/mapping
-    for token in tokens_list:
-        # Checks the value of the token in the dictionary and sets it to the appropriate value either 1 or +1
-        word_freq[token] = word_freq.get(token,0)  + 1
-
 
 if __name__ == "__main__":
     word_count = 0
