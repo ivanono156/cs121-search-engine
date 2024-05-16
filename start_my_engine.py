@@ -1,20 +1,24 @@
 import json
 import queue
 import re
+import time
 from nltk import PorterStemmer
 
 def run():
     search_query = input("Enter search query: ")
+    # start_time = time.time()
     parsed_query = parse_query(search_query)
     search_corpus(parsed_query)
+    # end_time = time.time()    TODO: figure out where the best place to time this goes
+    # print(f"Search query took {(end_time-start_time) * 1000} milliseconds")
 
 def parse_query(search_query) -> list[str]:
     stemmer = PorterStemmer()
     # Remove punctuation, keep only words
     parsed = re.findall(r'\w+', search_query)
-    # print("Parsed search query: " + str(parsed))
+    print("Parsed search query: " + str(parsed))
     stemmed = [stemmer.stem(token) for token in parsed]
-    # print("Stemmed tokens: " + str(stemmed))
+    print("Stemmed tokens: " + str(stemmed))
     return stemmed
 
 def search_corpus(search_terms):
@@ -29,8 +33,9 @@ def search_corpus(search_terms):
 def get_inverted_lists(search_terms) -> dict[str: list[str]]:
     inverted_lists = {}
     try:
-        # FIXME: Change final_index file to use bytes instead of text
-        with open('final_index.txt', 'r') as index_file, open('term_offsets.json', 'r') as offsets_file:
+        # TODO: Change final_index file to use bytes instead of text
+        with (open('final_index.txt', 'r', encoding='utf8') as index_file,
+              open('term_offsets.json', 'r', encoding='utf8') as offsets_file):
             term_offsets = json.load(offsets_file)
             for term in search_terms:
                 # Skip over terms that are not in the corpus
@@ -49,7 +54,7 @@ def get_inverted_lists(search_terms) -> dict[str: list[str]]:
         print("Error occurred while decoding json file")
     return inverted_lists
 
-# More skeleton code from lectures (slides 17.5-18)
+# More skeleton code from lecture 19
 def document_at_a_time_retrieval(query, index, f, g, k):
     results = queue.PriorityQueue()
     inverted_lists = get_inverted_lists(query)

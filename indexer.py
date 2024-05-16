@@ -72,7 +72,7 @@ def parse(document, doc_id) -> dict[str, int]:
             page_elements = soup.find_all(["strong", "b", "h1", "h2", "h3", "h4", "h5", "h6",
                                      "em", "p", "ul", "ol", "li", "blockquote",
                                      "a", "article", "section"])#Still need to test for better/more valuable headers
-            # FIXME: Also find a way to get the rest of the text besides the important text
+            # TODO: Also find a way to get the rest of the text besides the important text
             tokens = _tokenized_and_stem(" ".join([element.get_text() for element in page_elements]))
             return tokens
     except FileNotFoundError:
@@ -122,7 +122,7 @@ def merge_partial_indexes(off_count):
     # with open('final_index.json', 'w') as file:
     #     json.dump(final_index, file, indent=4, sort_keys=True)
 
-    # FIXME: Change final_index file to use bytes instead of text
+    # TODO: Change final_index file to use bytes instead of text
     with open('final_index.txt', 'w', encoding='utf8') as file:
         # iterate through the dictionary in alphabetical order
         for token, postings in sorted(final_index.items(), key=lambda kv_pair: kv_pair[0]):
@@ -130,7 +130,7 @@ def merge_partial_indexes(off_count):
             token_offsets[token] = offset
             # postings is a list of dicts
             postings_str = ";".join([f"({p['document_id']},{p['tfidf_score']})" for p in postings])
-            print("T,P: " + token + ":" + postings_str)
+            # print("T,P: " + token + ":" + postings_str)
             file.write(token + ":" + postings_str + "\n")
 
     store_table_as_json("term_offsets.json", token_offsets, True)
