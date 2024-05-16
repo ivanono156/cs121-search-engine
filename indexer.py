@@ -8,6 +8,9 @@ import re
 
 #Global var to keep track of unique words
 unique_words = set()
+# Global dict to keep track of which document id maps to which document url
+doc_ids_to_urls = {}
+
 # Skeleton code from lecture slides
 def build_index(documents) -> dict[str, list[Posting]]:
     global unique_words
@@ -23,16 +26,16 @@ def build_index(documents) -> dict[str, list[Posting]]:
     for n, document in enumerate(documents):
         # T <- Parse documents
         # Remove duplicates from T
-        tokens = parse(document)
+        tokens = parse(document, n)
         # Add each token to the hashtable
         for token in tokens:
             # Initialize new tokens
             unique_words.add(token)
-            wordFreqDoc = tokens[token]
+            term_freqs = tokens[token]
             if token not in hashtable:
                 hashtable[token] = []
             # Map each token to its posting (which contains this document's id)
-            hashtable[token].append(Posting(n, wordFreqDoc))
+            hashtable[token].append(Posting(n, term_freqs))
         if counter >= doc_threshold:
             unload_to_disk(hashtable,offload_count)
             offload_count += 1
@@ -42,10 +45,10 @@ def build_index(documents) -> dict[str, list[Posting]]:
         counter += 1
     #Offloads rest of hashtable before returning
     if hashtable:
-            unload_to_disk(hashtable,offload_count)
-            offload_count += 1
-            del hashtable
-            hashtable = {}
+        unload_to_disk(hashtable,offload_count)
+        offload_count += 1
+        del hashtable
+        hashtable = {}
     #Merges all partial indexes into one
     hashtable = merge_partial_indexes(offload_count)
     
@@ -53,30 +56,34 @@ def build_index(documents) -> dict[str, list[Posting]]:
 
 
 # Parse the json file and return the tokens from the file
-def parse(document) -> dict[str, int]:
+def parse(document, doc_id) -> dict[str, int]:
     try:
         with open(document, 'r') as file:
             # Create json object (can access object like a dictionary)
             json_object = json.load(file)
-            # print("Json File:", file.name)
-            # print(" Url:", json_object["url"])
-            # print(" Encoding:", json_object["encoding"])
+            # Skip urls with no content
+            if len(json_object["content"]) == 0:
+                print("Empty document: " + json_object["url"])
+                return {}
+            doc_ids_to_urls[doc_id] = json_object["url"]
             # Parse content using bs4 (passing in json_object["content"])
-            soup = BeautifulSoup(json_object["content"], "lxml-xml")    # Do we need to use the encoding for this step?
+            soup = BeautifulSoup(json_object["content"], features="lxml-xml", from_encoding=json_object["encoding"])
             # Find all important text (bold text and header text)
-            content = soup.find_all(["strong", "b", "h1", "h2", "h3", "h4", "h5", "h6", "em", "p", "ul", "ol", "li", "blockquote", "a", "article", "section"])#Still need to test for better/more valuable headers
+            page_elements = soup.find_all(["strong", "b", "h1", "h2", "h3", "h4", "h5", "h6",
+                                     "em", "p", "ul", "ol", "li", "blockquote",
+                                     "a", "article", "section"])#Still need to test for better/more valuable headers
             # FIXME: Also find a way to get the rest of the text besides the important text
-            tokens = _tokenized_and_stem(" ".join([text.get_text() for text in content]))   
+            tokens = _tokenized_and_stem(" ".join([element.get_text() for element in page_elements]))
             return tokens
     except FileNotFoundError:
         print("File " + document + " not found")
     except json.JSONDecodeError as json_err:
-        print(json_err.msg)
+        print("JSON error" + json_err.msg)
     except Exception as err:
-        print(err)
+        print("Error: " + str(err))
 
-    # If there is an error, just return an empty list
-    return []
+    # If there is an error, just return an empty dict
+    return dict()
 
 
 def unload_to_disk(index,off_count):
@@ -88,8 +95,9 @@ def unload_to_disk(index,off_count):
     filename = f"partial_index{off_count}.json"
     # Write the serialized index to disk
     with open(filename, 'w') as file:
-        json.dump(serialized_index, file, indent=4)  # Printing with indent of 4 for readability
+        json.dump(serialized_index, file, indent=4, sort_keys=True)  # Printing with indent of 4 for readability
     return {}
+
 
 # Merges all partial indexes into one final index file and dictionary
 def merge_partial_indexes(off_count):
@@ -106,14 +114,37 @@ def merge_partial_indexes(off_count):
                     final_index[token].extend(docs)
                 else:
                     final_index[token] = docs
-    
-    #Opens final index, a combination of all partial ones
-    with open('final_index','w') as file:
-        json.dump(final_index, file, indent=4)
+
+    # Dict to keep track of terms and their positions in the index file (for use with seek later)
+    token_offsets = {}
+
+    # #Opens final index, a combination of all partial ones
+    # with open('final_index.json', 'w') as file:
+    #     json.dump(final_index, file, indent=4, sort_keys=True)
+
+    # FIXME: Change final_index file to use bytes instead of text
+    with open('final_index.txt', 'w', encoding='utf8') as file:
+        # iterate through the dictionary in alphabetical order
+        for token, postings in sorted(final_index.items(), key=lambda kv_pair: kv_pair[0]):
+            offset = file.tell()
+            token_offsets[token] = offset
+            # postings is a list of dicts
+            postings_str = ";".join([f"({p['document_id']},{p['tfidf_score']})" for p in postings])
+            print("T,P: " + token + ":" + postings_str)
+            file.write(token + ":" + postings_str + "\n")
+
+    store_table_as_json("term_offsets.json", token_offsets, True)
         
     #Returns final index, can comment out to save memory?
     return final_index
 
+# store diff tables (to json format most likely)
+def store_table_as_json(file_name, table, sorted=False):
+    try:
+        with open(file_name, 'w') as file:
+            json.dump(table, file, indent=4, sort_keys=sorted)
+    except Exception as e:
+        print("Could not write to file " + file_name + ": " + str(e))
 
 # Code to tokenize a document when we have it in string form
 def _tokenized_and_stem(text_string):
@@ -129,20 +160,23 @@ def _tokenized_and_stem(text_string):
             stemmed_tokens[revToken] += 1
     return stemmed_tokens
 
+def get_documents(directory):
+    # Transform the relative paths into absolute paths
+    files = []
+    for root, _, filenames in os.walk(directory):
+        for file in filenames:
+            file_path = os.path.join(root, file)
+            files.append(file_path)
+    return files
+
+
 if __name__ == "__main__":
     word_count = 0
     # Path to the folder containing the documents
     folder_path = sys.argv[1]
-    # Transform the relative paths into absolute paths
-    files = []
-    for root, _, filenames in os.walk(folder_path):
-        for file in filenames:
-            file_path = os.path.join(root, file)
-            files.append(file_path)
+    docs = get_documents(folder_path)
+    table = build_index(docs)
+    store_table_as_json("document_ids_to_urls.json", doc_ids_to_urls, True)
 
-    table = build_index(files)
-    # # Print each token in the table (sorted by alphabetical order)
-        # for k, v in sorted(table.items(), key=lambda item: item[0]):
-        #     print(k, ":", v)
-    print("The number of indexed documents:", len(files))
+    print("The number of indexed documents:", len(docs))
     print("The number of unique words:", len(unique_words))
