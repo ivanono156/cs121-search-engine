@@ -4,6 +4,7 @@ import sys
 from bs4 import BeautifulSoup
 from nltk import PorterStemmer
 from posting import Posting
+from urllib.parse import urlparse, urlunparse
 import re
 
 #Global var to keep track of unique words
@@ -65,7 +66,9 @@ def parse(document, doc_id) -> dict[str, int]:
             if len(json_object["content"]) == 0:
                 print("Empty document: " + json_object["url"])
                 return {}
-            doc_ids_to_urls[doc_id] = json_object["url"]
+            defragged_url = defrag_url(json_object["url"])
+            if defragged_url not in doc_ids_to_urls:
+                doc_ids_to_urls[doc_id] = defragged_url
             # Parse content using bs4 (passing in json_object["content"])
             soup = BeautifulSoup(json_object["content"], features="lxml-xml", from_encoding=json_object["encoding"])
             # Find all important text (bold text and header text)
@@ -168,6 +171,11 @@ def get_documents(directory):
             file_path = os.path.join(root, file)
             files.append(file_path)
     return files
+
+def defrag_url(url):
+    parsedUrl = urlparse(url)
+    cleanUrl = parsedUrl._replace(fragment='')
+    return urlunparse(cleanUrl)
 
 
 if __name__ == "__main__":
