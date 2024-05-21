@@ -7,34 +7,36 @@ from nltk import PorterStemmer
 
 def run():
     while True:
-        search_query = input("Enter search query (enter 'q!' to quit): ")
+        search_query = input("Enter search query (enter 'q!' to quit): ").strip()   # Remove whitespace
         if search_query == "q!":
             print("Goodbye")
             break
-        start_time = time.time()
-        parsed_query = parse_query(search_query)
-        search_corpus(parsed_query)
-        end_time = time.time()
-        print(f"Search query took {(end_time - start_time) * 1000} milliseconds")
+
+        search_corpus(search_query)
 
 
 def parse_query(search_query) -> list[str]:
     stemmer = PorterStemmer()
     # Remove punctuation, keep only words
     parsed = re.findall(r'\w+', search_query)
-    print("Parsed search query: " + str(parsed))
+    # print("Parsed search query: " + str(parsed))
     stemmed = [stemmer.stem(token) for token in parsed]
-    print("Stemmed tokens: " + str(stemmed))
+    # print("Stemmed tokens: " + str(stemmed))
     return stemmed
 
 
 def search_corpus(search_terms):
-    inverted_lists = get_inverted_lists(search_terms)
-    for term, inv_list in inverted_lists.items():
-        print(f"Inverted list for {term}: {inverted_lists[term]}")
+    start_time = time.time()
+
+    parsed_query = parse_query(search_terms)
     # Filter and score documents
-    results = document_at_a_time_retrieval(search_terms, tf_scoring, filler_scoring, 5)
+    results = document_at_a_time_retrieval(parsed_query, tf_scoring, filler_scoring, 5)
     links = retrieve_links(results)
+
+    end_time = time.time()
+    print(f"Search query took {(end_time - start_time) * 1000} milliseconds")
+
+    print("Results:")
     for link in links:
         print(link)
 
@@ -58,7 +60,11 @@ def get_inverted_lists(search_terms) -> dict[str: list[str]]:
                 line = index_file.readline()
                 postings = re.findall(r'(\d+,\d+)', line)
                 # print("postings for " + term + ": " + str(postings))
-                inverted_lists[term] = postings
+                inverted_lists[term] = []
+                for posting in postings:
+                    doc_id, term_freq = posting.split(",")
+                    inverted_lists[term].append((int(doc_id), int(term_freq)))
+                # print(f"{term}: {inverted_lists[term]}")
     except FileNotFoundError:
         print("Index file not found! Create the index file before searching")
     except json.JSONDecodeError:
@@ -76,7 +82,9 @@ def document_at_a_time_retrieval(query, f, g, k):
     # Each term in query inverted list is searched
     for term in query:
         for posting in inverted_lists[term]:
-            doc_id, term_freq = map(int, posting.split(','))
+            # doc_id, term_freq = map(int, posting.split(','))
+            doc_id = posting[0]
+            term_freq = posting[1]
             if doc_id not in doc_terms_count:
                 doc_terms_count[doc_id] = set()
             doc_terms_count[doc_id].add(term)
@@ -91,7 +99,9 @@ def document_at_a_time_retrieval(query, f, g, k):
             if term in inverted_lists:
                 postings = inverted_lists[term]
                 for posting in postings:
-                    doc_id, term_freq = map(int, posting.split(','))
+                    # doc_id, term_freq = map(int, posting.split(','))
+                    doc_id = posting[0]
+                    term_freq = posting[1]
                     if doc_id == doc:
                         doc_score += g(query, term) * f(term_freq)
         if doc_score > 0:  # Only consider documents with a non-zero score
@@ -116,16 +126,14 @@ def retrieve_links(doc_ids):
     try:
         with open('document_ids_to_urls.json', 'r', encoding='utf8') as links_file:
             doc_links = json.load(links_file)
+            # Gets the link that are linked to each doc id passed in
+            links = [doc_links.get(str(doc_id), "Link not found") for doc_id in doc_ids]
+            return links
     except FileNotFoundError:
         print("Links file not found! Create the links file before searching")
-        return []
     except json.JSONDecodeError:
         print("Error occurred while decoding JSON file")
-        return []
-
-    # Gets the link that are linked to each doc id passed in
-    links = [doc_links.get(str(doc_id), "Link not found") for doc_id in doc_ids]
-    return links
+    return []
 
 
 if __name__ == "__main__":
