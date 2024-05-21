@@ -46,7 +46,7 @@ def search_corpus(search_terms):
 def get_inverted_lists(search_terms) -> dict[str: list[str]]:
     inverted_lists = {}
     try:
-        # TODO: Change final_index file to use bytes instead of text
+        # TODO: Change final_index file to use bytes instead of text???
         with (open('final_index.txt', 'r', encoding='utf8') as index_file,
               open('term_offsets.json', 'r', encoding='utf8') as offsets_file):
             term_offsets = json.load(offsets_file)
