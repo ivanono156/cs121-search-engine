@@ -30,14 +30,13 @@ def search_corpus(search_terms):
 
     parsed_query = parse_query(search_terms)
     # Filter and score documents
-    k = 5
-    results = document_at_a_time_retrieval(parsed_query, tf_scoring, filler_scoring, k)
+    results = document_at_a_time_retrieval(parsed_query, tf_scoring, filler_scoring, 5)
     links = retrieve_links(results)
 
     end_time = time.time()
     print(f"Search query took {(end_time - start_time) * 1000} milliseconds")
 
-    print(f"Top {k} Results:")
+    print(f"Top {len(links)} Results:")
     for link in links:
         print(link)
 
@@ -87,8 +86,8 @@ def document_at_a_time_retrieval(query, f, g, k):
             continue
         for posting in inverted_lists[term]:
             # doc_id, term_freq = map(int, posting.split(','))
-            doc_id = posting[0]
-            term_freq = posting[1]
+            doc_id, tfidf_score = posting
+            # print(f"Doc #{doc_id}: {tfidf_score}")
             if doc_id not in doc_terms_count:
                 doc_terms_count[doc_id] = set()
             doc_terms_count[doc_id].add(term)
@@ -104,10 +103,9 @@ def document_at_a_time_retrieval(query, f, g, k):
                 postings = inverted_lists[term]
                 for posting in postings:
                     # doc_id, term_freq = map(int, posting.split(','))
-                    doc_id = posting[0]
-                    term_freq = posting[1]
+                    doc_id, tfidf_score = posting
                     if doc_id == doc:
-                        doc_score += g(query, term) * f(term_freq)
+                        doc_score += g(query, term) * f(tfidf_score)
         if doc_score > 0:  # Only consider documents with a non-zero score
             results.put((-doc_score, doc))  # Negative score for max-heap behavior
     top_documents = []
