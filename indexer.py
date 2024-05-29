@@ -29,17 +29,18 @@ def build_index(documents) -> dict[str, list[Posting]]:
         # T <- Parse documents
         # Remove duplicates from T
         tokens = parse(document, n)
-        doc_length = len(tokens)
         # Add each token to the hashtable
         for token in tokens:
             # Initialize new tokens
             unique_words.add(token)
-            term_freqs = tokens[token]
+            term_freq = tokens[token]
             if token not in hashtable:
                 hashtable[token] = []
+            # calculate the log frequency weight of the term and round to 2 decimal places
+            log_freq_weight = 1 + round(math.log(term_freq, 10), 2) if term_freq > 0 else 0
+            # print(f"term: {token}, tf: {term_freq} log freq weight: {log_freq_weight}")
             # Map each token to its posting (which contains this document's id)
-            tf_score = 1 + round(math.log(term_freqs / doc_length), 2)    # round the tf score to 2 decimal places
-            hashtable[token].append(Posting(n, tf_score))
+            hashtable[token].append(Posting(n, log_freq_weight))
         if counter >= doc_threshold:
             unload_to_disk(hashtable,offload_count)
             offload_count += 1
@@ -130,27 +131,29 @@ def merge_partial_indexes(off_count):
     # with open('final_index.json', 'w') as file:
     #     json.dump(final_index, file, indent=4, sort_keys=True)
 
-    total_docs = len(doc_ids_to_urls)
+    total_docs = len(doc_ids_to_urls)   # used to calculate idf
     # TODO: Change final_index file to use bytes instead of text
-    with open('final_index.txt', 'w', encoding='utf8') as file:
+    with open('final_index.txt', 'wb') as file:
         # iterate through the dictionary in alphabetical order
         for token, postings in sorted(final_index.items(), key=lambda kv_pair: kv_pair[0]):
             # calculate idf score for this token
-            doc_freq = len(postings)
-            idf = math.log(total_docs/doc_freq)   # idf = log (N / df(t))    N = total docs, df(t) = doc freq of term t
+            doc_freq = len(postings)    # the number of documents that contain this term/token
+            idf = math.log(total_docs/doc_freq, 10)
             # combine the token's idf score with the existing tf score for each posting
             for posting in postings:
-                tf_score = posting['tfidf_score']   # get the existing tf score
-                tfidf_score = tf_score * idf    # calculate the tfidf score
-                posting['tfidf_score'] = round(tfidf_score, 2)    # set the tfidf score for the current posting
+                tf = posting['tfidf_score']   # get the existing tf score
+                tfidf_score = tf * idf    # calculate the raw tfidf score
+                posting['tfidf_score'] = round(tfidf_score, 2)    # round the tfidf score to 2 decimal places & store it
+                # print(f"term: {token}, tf: {tf}, idf: {idf}, tfidf_score: {tfidf_score}")
+
             offset = file.tell()
             token_offsets[token] = offset
             # postings is a list of dicts
             postings_str = ";".join([f"({p['document_id']},{p['tfidf_score']})" for p in postings])
             # print("T,P: " + token + ":" + postings_str)
-            string = token + ":" + postings_str + "\n"
-            file.write(string.encode('utf-8'))  # write string as bytes to file
-            file.write(token + ":" + postings_str + "\n")
+            s = token + ":" + postings_str + "\n"
+            file.write(s.encode('utf-8'))  # write string as bytes to file
+            # file.write(token + ":" + postings_str + "\n")
 
     store_table_as_json("term_offsets.json", token_offsets, True)
         
@@ -194,7 +197,9 @@ if __name__ == "__main__":
     # Path to the folder containing the documents
     folder_path = sys.argv[1]
     docs = get_documents(folder_path)
+    print("Building index...")
     table = build_index(docs)
+    print("Building index complete")
     store_table_as_json("document_ids_to_urls.json", doc_ids_to_urls, True)
 
     print("The number of indexed documents:", len(docs))

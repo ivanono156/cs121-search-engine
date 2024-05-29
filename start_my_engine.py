@@ -30,13 +30,14 @@ def search_corpus(search_terms):
 
     parsed_query = parse_query(search_terms)
     # Filter and score documents
-    results = document_at_a_time_retrieval(parsed_query, tf_scoring, filler_scoring, 5)
+    k = 5
+    results = document_at_a_time_retrieval(parsed_query, tf_scoring, filler_scoring, k)
     links = retrieve_links(results)
 
     end_time = time.time()
     print(f"Search query took {(end_time - start_time) * 1000} milliseconds")
 
-    print("Results:")
+    print(f"Top {k} Results:")
     for link in links:
         print(link)
 
@@ -47,7 +48,7 @@ def get_inverted_lists(search_terms) -> dict[str: list[str]]:
     inverted_lists = {}
     try:
         # TODO: Change final_index file to use bytes instead of text???
-        with (open('final_index.txt', 'r', encoding='utf8') as index_file,
+        with (open('final_index.txt', 'rb') as index_file,
               open('term_offsets.json', 'r', encoding='utf8') as offsets_file):
             term_offsets = json.load(offsets_file)
             for term in search_terms:
@@ -57,13 +58,14 @@ def get_inverted_lists(search_terms) -> dict[str: list[str]]:
                     continue
                 offset = term_offsets[term]
                 index_file.seek(offset)
-                line = index_file.readline() #.decode() FIXME: UNCOMMENT AND CHANGE 'r' to 'rb'
-                postings = re.findall(r'(\d+,\d+)', line)
+                line = index_file.readline().decode()   # decode bytes
+                # print(line)
+                postings = re.findall(r'(\d+,\d+\.\d+)', line)
                 # print("postings for " + term + ": " + str(postings))
                 inverted_lists[term] = []
                 for posting in postings:
                     doc_id, term_freq = posting.split(",")
-                    inverted_lists[term].append((int(doc_id), int(term_freq)))
+                    inverted_lists[term].append((int(doc_id), float(term_freq)))
                 # print(f"{term}: {inverted_lists[term]}")
     except FileNotFoundError:
         print("Index file not found! Create the index file before searching")
@@ -81,6 +83,8 @@ def document_at_a_time_retrieval(query, f, g, k):
 
     # Each term in query inverted list is searched
     for term in query:
+        if term not in inverted_lists:
+            continue
         for posting in inverted_lists[term]:
             # doc_id, term_freq = map(int, posting.split(','))
             doc_id = posting[0]
@@ -108,7 +112,9 @@ def document_at_a_time_retrieval(query, f, g, k):
             results.put((-doc_score, doc))  # Negative score for max-heap behavior
     top_documents = []
     while not results.empty() and k > 0:
-        top_documents.append(results.get()[1])
+        doc_score, doc = results.get()
+        # print(doc, doc_score)
+        top_documents.append(doc)
         k -= 1
     return top_documents
 
