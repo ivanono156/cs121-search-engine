@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import sys
 import re
@@ -28,6 +29,7 @@ def build_index(documents) -> dict[str, list[Posting]]:
         # T <- Parse documents
         # Remove duplicates from T
         tokens = parse(document, n)
+        doc_length = len(tokens)
         # Add each token to the hashtable
         for token in tokens:
             # Initialize new tokens
@@ -36,7 +38,8 @@ def build_index(documents) -> dict[str, list[Posting]]:
             if token not in hashtable:
                 hashtable[token] = []
             # Map each token to its posting (which contains this document's id)
-            hashtable[token].append(Posting(n, term_freqs))
+            tf_score = 1 + round(math.log(term_freqs / doc_length), 2)    # round the tf score to 2 decimal places
+            hashtable[token].append(Posting(n, tf_score))
         if counter >= doc_threshold:
             unload_to_disk(hashtable,offload_count)
             offload_count += 1
@@ -74,9 +77,9 @@ def parse(document, doc_id) -> dict[str, int]:
             # Parse content using bs4 (passing in json_object["content"])
             soup = BeautifulSoup(json_object["content"], features="lxml-xml", from_encoding=json_object["encoding"])
             # Find all important text (bold text and header text)
-            page_elements = soup.find_all(["strong", "b", "h1", "h2", "h3", "h4", "h5", "h6",
-                                     "em", "p", "ul", "ol", "li", "blockquote",
-                                     "a", "article", "section"])#Still need to test for better/more valuable headers
+            page_elements = soup.find_all(
+                ["strong", "b", "h1", "h2", "h3", "h4", "h5", "h6", "em", "p", "ul", "ol", "li", "blockquote",
+                 "a", "article", "section"])    # Still need to test for better/more valuable headers
             # TODO: Also find a way to get the rest of the text besides the important text
             tokens = _tokenized_and_stem(" ".join([element.get_text() for element in page_elements]))
             return tokens
@@ -127,15 +130,26 @@ def merge_partial_indexes(off_count):
     # with open('final_index.json', 'w') as file:
     #     json.dump(final_index, file, indent=4, sort_keys=True)
 
+    total_docs = len(doc_ids_to_urls)
     # TODO: Change final_index file to use bytes instead of text
     with open('final_index.txt', 'w', encoding='utf8') as file:
         # iterate through the dictionary in alphabetical order
         for token, postings in sorted(final_index.items(), key=lambda kv_pair: kv_pair[0]):
+            # calculate idf score for this token
+            doc_freq = len(postings)
+            idf = math.log(total_docs/doc_freq)   # idf = log (N / df(t))    N = total docs, df(t) = doc freq of term t
+            # combine the token's idf score with the existing tf score for each posting
+            for posting in postings:
+                tf_score = posting['tfidf_score']   # get the existing tf score
+                tfidf_score = tf_score * idf    # calculate the tfidf score
+                posting['tfidf_score'] = round(tfidf_score, 2)    # set the tfidf score for the current posting
             offset = file.tell()
             token_offsets[token] = offset
             # postings is a list of dicts
             postings_str = ";".join([f"({p['document_id']},{p['tfidf_score']})" for p in postings])
             # print("T,P: " + token + ":" + postings_str)
+            string = token + ":" + postings_str + "\n"
+            file.write(string.encode('utf-8'))  # write string as bytes to file
             file.write(token + ":" + postings_str + "\n")
 
     store_table_as_json("term_offsets.json", token_offsets, True)

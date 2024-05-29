@@ -53,11 +53,11 @@ def get_inverted_lists(search_terms) -> dict[str: list[str]]:
             for term in search_terms:
                 # Skip over terms that are not in the corpus
                 if term not in term_offsets:
-                    inverted_lists[term] = []  # just for debugging, but we can remove this in the final submission
+                    #inverted_lists[term] = []  # just for debugging, but we can remove this in the final submission
                     continue
                 offset = term_offsets[term]
                 index_file.seek(offset)
-                line = index_file.readline()
+                line = index_file.readline() #.decode() FIXME: UNCOMMENT AND CHANGE 'r' to 'rb'
                 postings = re.findall(r'(\d+,\d+)', line)
                 # print("postings for " + term + ": " + str(postings))
                 inverted_lists[term] = []
