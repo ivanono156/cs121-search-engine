@@ -16,7 +16,7 @@ def run():
         search_corpus(search_query)
 
 
-def parse_query(search_query) -> list[str]:
+def parse_query(search_query: str) -> list[str]:
     stemmer = PorterStemmer()
     # Remove punctuation, keep only words
     parsed = re.findall(r'\w+', search_query)
@@ -26,7 +26,7 @@ def parse_query(search_query) -> list[str]:
     return stemmed
 
 
-def search_corpus(search_terms):
+def search_corpus(search_terms: str) -> None:
     start_time = time.time()
 
     parsed_query = parse_query(search_terms)
@@ -45,7 +45,7 @@ def search_corpus(search_terms):
 
 # search terms = stemmed terms from the search query
 # returns a mapping of each search term to its inverted list
-def get_inverted_lists(search_terms) -> dict[str: list[str]]:
+def get_inverted_lists(search_terms: list[str]) -> dict[str: list[str]]:
     inverted_lists = {}
     try:
         # TODO: Change final_index file to use bytes instead of text???
@@ -56,7 +56,7 @@ def get_inverted_lists(search_terms) -> dict[str: list[str]]:
             for term in search_terms:
                 # Skip over terms that are not in the corpus
                 if term not in term_offsets:
-                    inverted_lists[term] = []  # just for debugging, but we can remove this in the final submission
+                    inverted_lists[term] = []
                     continue
                 offset = term_offsets[term]
                 index_file.seek(offset)
@@ -76,40 +76,48 @@ def get_inverted_lists(search_terms) -> dict[str: list[str]]:
     return inverted_lists
 
 
+# Computes the cosine similarity between the given search query and the documents in the corpus
 def cosine_scoring(query: list[str], k: int) -> list[int]:
     results = queue.PriorityQueue()
     inverted_lists = get_inverted_lists(query)
 
-    # Compute cosine similarity scores
     doc_magnitudes = get_document_magnitudes()
-    n = len(doc_magnitudes)
-    query_magnitude = compute_query_magnitude(query, inverted_lists, n)
-    print("Query magnitude:", query_magnitude)
+    doc_lengths = get_document_lengths()
+    total_docs = len(doc_magnitudes)
+    query_tfidfs = compute_query_tfidfs(query, inverted_lists, total_docs)
+    query_magnitude = math.sqrt(sum(math.pow(tfidf, 2) for tfidf in query_tfidfs.values()))
+    # print("Query magnitude:", query_magnitude)
 
-    scores = [0] * n  # initialize list of scores
-
+    scores = [0.0] * total_docs  # Initialize list of scores for all documents
+    # Compute dot product of tfidf score of term in each document and the query
     for term in query:
         for doc_id, tfidf_score in inverted_lists[term]:
             # print(term, doc_id, tfidf_score)
-            scores[doc_id] += tfidf_score
+            query_tfidf = query_tfidfs[term]
+            doc_length = doc_lengths[str(doc_id)]
+            # Normalize the term document tfidf score by dividing it by the document's length
+            scores[doc_id] += (tfidf_score / doc_length) * query_tfidf
 
-    for i in range(n):
+    # Normalize scores by dividing by the doc and query magnitudes to get the cosine similarity
+    for i in range(total_docs):
         doc_magnitude = doc_magnitudes[str(i)]
-        doc_score = scores[i] / doc_magnitude if doc_magnitude > 0 else 0  # normalize scores
+        denominator = doc_magnitude * query_magnitude
+        doc_score = scores[i] / denominator if denominator > 0 else 0
         if doc_score > 0:  # Only consider documents with a non-zero score
             # print(f"Score for doc #{i}: {doc_score}")
             results.put((-doc_score, i))  # Negative score for max-heap behavior
 
+    # Retrieve the top k documents
     top_documents = []
     while not results.empty() and k > 0:
         doc_score, doc = results.get()
-        print(f"Score for doc #{doc}: {doc_score}")
+        # print(f"Score for doc #{doc}: {abs(doc_score)}")
         top_documents.append(doc)
         k -= 1
     return top_documents
 
 
-def compute_query_magnitude(query: list[str], inverted_lists: dict[str: list[str]], total_docs: int) -> float:
+def compute_query_tfidfs(query: list[str], inverted_lists: dict[str: list[str]], total_docs: int) -> dict[str, float]:
     # First, compute TF for each term
     term_freqs = {}
     for term in query:
@@ -117,19 +125,15 @@ def compute_query_magnitude(query: list[str], inverted_lists: dict[str: list[str
             term_freqs[term] = 1
         else:
             term_freqs[term] += 1
-
-    # Next, compute the tfidf for each term and compute the sum of the squares of each term weight
-    sum_of_squares = 0.0
-    for term in query:
-        tf = term_freqs[term]
+    # Next, compute the tfidf score for each term in the query
+    term_tfidfs = {}
+    for term, tf in term_freqs.items():
         doc_freq = len(inverted_lists[term]) if term in inverted_lists else 0
         idf = math.log10(total_docs / doc_freq) if doc_freq > 0 else 0
         tfidf = tf * idf
-        print(f"tfidf for term {term}: {tfidf}")
-        sum_of_squares += math.pow(tfidf, 2)   # square tfidf and add it to the sum
-    print("Sum of squares:", sum_of_squares)
-
-    return math.sqrt(sum_of_squares)   # return the query's magnitude
+        # print(f"tfidf for term {term}: {tfidf}")
+        term_tfidfs[term] = tfidf
+    return term_tfidfs
 
 
 def document_at_a_time_retrieval(query, f, g, k):
@@ -184,7 +188,7 @@ def filler_scoring(query, term):
     return 1
 
 
-def get_document_magnitudes():
+def get_document_magnitudes() -> dict[str, float]:
     try:
         with open('document_magnitudes.json', 'r') as file:
             doc_magnitudes = json.load(file)
@@ -196,7 +200,19 @@ def get_document_magnitudes():
     return {}
 
 
-def retrieve_links(doc_ids):
+def get_document_lengths() -> dict[str, float]:
+    try:
+        with open('document_lengths.json', 'r') as file:
+            doc_lengths = json.load(file)
+            return doc_lengths
+    except FileNotFoundError:
+        print("Document lengths file not found! Create index before searching")
+    except Exception as e:
+        print("Error occurred while reading document lengths: " + str(e))
+    return {}
+
+
+def retrieve_links(doc_ids) -> list[str]:
     # Opens document where we store doc_id -> urls
     try:
         with open('document_ids_to_urls.json', 'r', encoding='utf8') as links_file:

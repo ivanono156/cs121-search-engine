@@ -166,6 +166,7 @@ def merge_partial_indexes(off_count):
             file.write(s.encode('utf-8'))  # write string as bytes to file
             # file.write(token + ":" + postings_str + "\n")
 
+    store_table_as_json("document_lengths.json", {i: length for i, length in enumerate(doc_lengths)}, True)
     create_document_magnitudes(doc_sum_of_squares)
     store_table_as_json("term_offsets.json", token_offsets, True)
         
@@ -175,8 +176,8 @@ def merge_partial_indexes(off_count):
 
 def create_document_magnitudes(doc_sum_of_squares):
     doc_magnitudes = {}
-    for i in range(len(doc_sum_of_squares)):
-        doc_magnitudes[i] = math.sqrt(doc_sum_of_squares[i])
+    for i, sum_of_square in enumerate(doc_sum_of_squares):
+        doc_magnitudes[i] = math.sqrt(sum_of_square)
     store_table_as_json("document_magnitudes.json", doc_magnitudes, True)
 
 # store diff tables (to json format most likely)
