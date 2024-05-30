@@ -8,10 +8,12 @@ from bs4 import BeautifulSoup
 from nltk import PorterStemmer
 from posting import Posting
 
-#Global var to keep track of unique words
+# Global var to keep track of unique words
 unique_words = set()
 # Global dict to keep track of which document id maps to which document url
 doc_ids_to_urls = {}
+# Global list to keep track of document lengths, used to normalize term freqs
+doc_lengths = []
 
 # Skeleton code from lecture slides
 def build_index(documents) -> dict[str, list[Posting]]:
@@ -29,6 +31,8 @@ def build_index(documents) -> dict[str, list[Posting]]:
         # T <- Parse documents
         # Remove duplicates from T
         tokens = parse(document, n)
+        doc_length = sum(freq for freq in tokens.values()) if len(tokens) > 0 else 0
+        doc_lengths.append(doc_length)
         # Add each token to the hashtable
         for token in tokens:
             # Initialize new tokens
@@ -36,8 +40,8 @@ def build_index(documents) -> dict[str, list[Posting]]:
             term_freq = tokens[token]
             if token not in hashtable:
                 hashtable[token] = []
-            # calculate the log frequency weight of the term and round to 2 decimal places
-            log_freq_weight = 1 + round(math.log(term_freq, 10), 2) if term_freq > 0 else 0
+            # calculate the log base 10 frequency weight of the term
+            log_freq_weight = 1 + math.log10(term_freq) if term_freq > 0 else 0
             # print(f"term: {token}, tf: {term_freq} log freq weight: {log_freq_weight}")
             # Map each token to its posting (which contains this document's id)
             hashtable[token].append(Posting(n, log_freq_weight))
@@ -56,6 +60,9 @@ def build_index(documents) -> dict[str, list[Posting]]:
         hashtable = {}
     #Merges all partial indexes into one
     hashtable = merge_partial_indexes(offload_count)
+
+    # Store doc ids to url mappings
+    store_table_as_json("document_ids_to_urls.json", doc_ids_to_urls, True)
     
     return hashtable
 
@@ -131,19 +138,23 @@ def merge_partial_indexes(off_count):
     # with open('final_index.json', 'w') as file:
     #     json.dump(final_index, file, indent=4, sort_keys=True)
 
-    total_docs = len(doc_ids_to_urls)   # used to calculate idf
+    total_docs = len(doc_lengths)   # used to calculate idf
+    # This will be used to calculate each document's vector magnitude when performing the search queries
+    doc_sum_of_squares = [0.0] * total_docs     # initialize sum of squares for each doc to zero
     # TODO: Change final_index file to use bytes instead of text
     with open('final_index.txt', 'wb') as file:
         # iterate through the dictionary in alphabetical order
         for token, postings in sorted(final_index.items(), key=lambda kv_pair: kv_pair[0]):
-            # calculate idf score for this token
             doc_freq = len(postings)    # the number of documents that contain this term/token
-            idf = math.log(total_docs/doc_freq, 10)
+            idf = math.log10(total_docs/doc_freq)   # calculate idf score for this token
             # combine the token's idf score with the existing tf score for each posting
             for posting in postings:
                 tf = posting['tfidf_score']   # get the existing tf score
                 tfidf_score = tf * idf    # calculate the raw tfidf score
-                posting['tfidf_score'] = round(tfidf_score, 2)    # round the tfidf score to 2 decimal places & store it
+                posting['tfidf_score'] = round(tfidf_score, 2)    # round tfidf score to 2 decimal places and store it
+                doc_id = int(posting['document_id'])
+                doc_len = doc_lengths[doc_id]   # get the length of this doc
+                doc_sum_of_squares[doc_id] += math.pow(tf/doc_len * idf, 2)  # square tfidf score and add to doc sum
                 # print(f"term: {token}, tf: {tf}, idf: {idf}, tfidf_score: {tfidf_score}")
 
             offset = file.tell()
@@ -155,10 +166,18 @@ def merge_partial_indexes(off_count):
             file.write(s.encode('utf-8'))  # write string as bytes to file
             # file.write(token + ":" + postings_str + "\n")
 
+    create_document_magnitudes(doc_sum_of_squares)
     store_table_as_json("term_offsets.json", token_offsets, True)
         
     #Returns final index, can comment out to save memory?
     return final_index
+
+
+def create_document_magnitudes(doc_sum_of_squares):
+    doc_magnitudes = {}
+    for i in range(len(doc_sum_of_squares)):
+        doc_magnitudes[i] = math.sqrt(doc_sum_of_squares[i])
+    store_table_as_json("document_magnitudes.json", doc_magnitudes, True)
 
 # store diff tables (to json format most likely)
 def store_table_as_json(file_name, table, sorted=False):
@@ -200,7 +219,6 @@ if __name__ == "__main__":
     print("Building index...")
     table = build_index(docs)
     print("Building index complete")
-    store_table_as_json("document_ids_to_urls.json", doc_ids_to_urls, True)
 
     print("The number of indexed documents:", len(docs))
     print("The number of unique words:", len(unique_words))

@@ -1,4 +1,5 @@
 import json
+import math
 import queue
 import re
 import time
@@ -29,8 +30,9 @@ def search_corpus(search_terms):
     start_time = time.time()
 
     parsed_query = parse_query(search_terms)
-    # Filter and score documents
-    results = document_at_a_time_retrieval(parsed_query, tf_scoring, filler_scoring, 5)
+    # # Filter and score documents
+    # results = document_at_a_time_retrieval(parsed_query, tf_scoring, filler_scoring, 5)
+    results = cosine_scoring(parsed_query, 5)
     links = retrieve_links(results)
 
     end_time = time.time()
@@ -50,10 +52,11 @@ def get_inverted_lists(search_terms) -> dict[str: list[str]]:
         with (open('final_index.txt', 'rb') as index_file,
               open('term_offsets.json', 'r', encoding='utf8') as offsets_file):
             term_offsets = json.load(offsets_file)
+
             for term in search_terms:
                 # Skip over terms that are not in the corpus
                 if term not in term_offsets:
-                    #inverted_lists[term] = []  # just for debugging, but we can remove this in the final submission
+                    inverted_lists[term] = []  # just for debugging, but we can remove this in the final submission
                     continue
                 offset = term_offsets[term]
                 index_file.seek(offset)
@@ -71,6 +74,62 @@ def get_inverted_lists(search_terms) -> dict[str: list[str]]:
     except json.JSONDecodeError:
         print("Error occurred while decoding json file")
     return inverted_lists
+
+
+def cosine_scoring(query: list[str], k: int) -> list[int]:
+    results = queue.PriorityQueue()
+    inverted_lists = get_inverted_lists(query)
+
+    # Compute cosine similarity scores
+    doc_magnitudes = get_document_magnitudes()
+    n = len(doc_magnitudes)
+    query_magnitude = compute_query_magnitude(query, inverted_lists, n)
+    print("Query magnitude:", query_magnitude)
+
+    scores = [0] * n  # initialize list of scores
+
+    for term in query:
+        for doc_id, tfidf_score in inverted_lists[term]:
+            # print(term, doc_id, tfidf_score)
+            scores[doc_id] += tfidf_score
+
+    for i in range(n):
+        doc_magnitude = doc_magnitudes[str(i)]
+        doc_score = scores[i] / doc_magnitude if doc_magnitude > 0 else 0  # normalize scores
+        if doc_score > 0:  # Only consider documents with a non-zero score
+            # print(f"Score for doc #{i}: {doc_score}")
+            results.put((-doc_score, i))  # Negative score for max-heap behavior
+
+    top_documents = []
+    while not results.empty() and k > 0:
+        doc_score, doc = results.get()
+        print(f"Score for doc #{doc}: {doc_score}")
+        top_documents.append(doc)
+        k -= 1
+    return top_documents
+
+
+def compute_query_magnitude(query: list[str], inverted_lists: dict[str: list[str]], total_docs: int) -> float:
+    # First, compute TF for each term
+    term_freqs = {}
+    for term in query:
+        if term not in term_freqs:
+            term_freqs[term] = 1
+        else:
+            term_freqs[term] += 1
+
+    # Next, compute the tfidf for each term and compute the sum of the squares of each term weight
+    sum_of_squares = 0.0
+    for term in query:
+        tf = term_freqs[term]
+        doc_freq = len(inverted_lists[term]) if term in inverted_lists else 0
+        idf = math.log10(total_docs / doc_freq) if doc_freq > 0 else 0
+        tfidf = tf * idf
+        print(f"tfidf for term {term}: {tfidf}")
+        sum_of_squares += math.pow(tfidf, 2)   # square tfidf and add it to the sum
+    print("Sum of squares:", sum_of_squares)
+
+    return math.sqrt(sum_of_squares)   # return the query's magnitude
 
 
 def document_at_a_time_retrieval(query, f, g, k):
@@ -123,6 +182,18 @@ def tf_scoring(term_freq):
 
 def filler_scoring(query, term):
     return 1
+
+
+def get_document_magnitudes():
+    try:
+        with open('document_magnitudes.json', 'r') as file:
+            doc_magnitudes = json.load(file)
+            return doc_magnitudes
+    except FileNotFoundError:
+        print("Document magnitudes file not found! Create index before searching")
+    except Exception as e:
+        print("Error occurred while reading document magnitudes: " + str(e))
+    return {}
 
 
 def retrieve_links(doc_ids):
