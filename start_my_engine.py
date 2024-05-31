@@ -45,7 +45,7 @@ def search_corpus(search_terms: str) -> None:
 
 # search terms = stemmed terms from the search query
 # returns a mapping of each search term to its inverted list
-def get_inverted_lists(search_terms: list[str]) -> dict[str: list[str]]:
+def get_inverted_lists(search_terms: list[str]) -> dict[str: list[(int, float)]]:
     inverted_lists = {}
     try:
         with (open('final_index.txt', 'rb') as index_file,
@@ -147,7 +147,6 @@ def document_at_a_time_retrieval(query, f, g, k):
         if term not in inverted_lists:
             continue
         for posting in inverted_lists[term]:
-            # doc_id, term_freq = map(int, posting.split(','))
             doc_id, tfidf_score = posting
             # print(f"Doc #{doc_id}: {tfidf_score}")
             if doc_id not in doc_terms_count:
@@ -164,7 +163,6 @@ def document_at_a_time_retrieval(query, f, g, k):
             if term in inverted_lists:
                 postings = inverted_lists[term]
                 for posting in postings:
-                    # doc_id, term_freq = map(int, posting.split(','))
                     doc_id, tfidf_score = posting
                     if doc_id == doc:
                         doc_score += g(query, term) * f(tfidf_score)

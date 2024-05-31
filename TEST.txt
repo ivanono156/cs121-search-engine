@@ -1,12 +1,12 @@
 Queries:
 
-1)
-2)
-3)
-4)
-5)
-6)
-7)
+1) computer game science *
+2) academic advising *
+3) department of informatics *
+4) hack uci
+5) artificial intelligence
+6) game design and interactive media
+7) alumni
 8)
 9)
 10)
@@ -20,3 +20,8 @@ Queries:
 18)
 19)
 20)
+
+The queries marked with * performed worse with our original retrieval implementation. To improve the run time, we
+switched our retrieval function from boolean model to the cosine similarity method. Longer queries took more time
+because we had many nested for loops, so we moved away from nested for loops unless necessary (e.g. using nested
+for loops to look at each posting for each term.)
