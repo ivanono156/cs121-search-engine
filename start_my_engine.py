@@ -4,8 +4,9 @@ import queue
 import re
 import time
 from nltk import PorterStemmer
-
-
+import numpy as np
+HUBS_FILE = 'hubs.json'
+AUTHORITIES_FILE = 'authorities.json'
 def run():
     while True:
         search_query = input("Enter search query (enter 'q!' to quit): ").strip()   # Remove whitespace
@@ -45,7 +46,7 @@ def search_corpus(search_terms: str) -> None:
 
 # search terms = stemmed terms from the search query
 # returns a mapping of each search term to its inverted list
-def get_inverted_lists(search_terms: list[str]) -> dict[str: list[(int, float)]]:
+def get_inverted_lists(search_terms: list[str]) -> dict[str: list[str]]:
     inverted_lists = {}
     try:
         with (open('final_index.txt', 'rb') as index_file,
@@ -75,7 +76,7 @@ def get_inverted_lists(search_terms: list[str]) -> dict[str: list[(int, float)]]
     return inverted_lists
 
 
-# Computes the cosine similarity between the given search query and the documents in the corpus
+# Computes the cosine similarity between the given search query and the documents in the corpus and also factors in HIT scoring algo.
 def cosine_scoring(query: list[str], k: int) -> list[int]:
     results = queue.PriorityQueue()
     inverted_lists = get_inverted_lists(query)
@@ -98,13 +99,27 @@ def cosine_scoring(query: list[str], k: int) -> list[int]:
             scores[doc_id] += (tfidf_score / doc_length) * query_tfidf
 
     # Normalize scores by dividing by the doc and query magnitudes to get the cosine similarity
+    hubs = load_hits_scores(HUBS_FILE)
+    authorities = load_hits_scores(AUTHORITIES_FILE)
+    # Normalizes hub and authority scores
+    max_hub_score = max(hubs.values()) if hubs else 1
+    max_authority_score = max(authorities.values()) if authorities else 1
+     # Sets value to very small number if 0, bc cannot divide by 0
+    if max_hub_score == 0:
+        max_hub_score = .0000001
+    if max_authority_score == 0:
+        max_authority_score = .0000001
+    hubs = {doc_id: score / max_hub_score for doc_id, score in hubs.items()}
+    authorities = {doc_id: score / max_authority_score for doc_id, score in authorities.items()}
+    
     for i in range(total_docs):
         doc_magnitude = doc_magnitudes[str(i)]
         denominator = doc_magnitude * query_magnitude
         doc_score = scores[i] / denominator if denominator > 0 else 0
-        if doc_score > 0:  # Only consider documents with a non-zero score
-            # print(f"Score for doc #{i}: {doc_score}")
-            results.put((-doc_score, i))  # Negative score for max-heap behavior
+        if doc_score > 0:
+            #here is where the ratios of how we weight each scoring mech, feel free to change to test
+            combined_score = 0.5 * doc_score + 0.25 * hubs.get(str(i), 0) + 0.25 * authorities.get(str(i), 0)
+            results.put((-combined_score, i))
 
     # Retrieve the top k documents
     top_documents = []
@@ -133,56 +148,6 @@ def compute_query_tfidfs(query: list[str], inverted_lists: dict[str: list[str]],
         # print(f"tfidf for term {term}: {tfidf}")
         term_tfidfs[term] = tfidf
     return term_tfidfs
-
-
-def document_at_a_time_retrieval(query, f, g, k):
-    results = queue.PriorityQueue()
-    inverted_lists = get_inverted_lists(query)
-
-    # Initialize dictionary to keep track of how many terms a doc has in common with search
-    doc_terms_count = {}
-
-    # Each term in query inverted list is searched
-    for term in query:
-        if term not in inverted_lists:
-            continue
-        for posting in inverted_lists[term]:
-            doc_id, tfidf_score = posting
-            # print(f"Doc #{doc_id}: {tfidf_score}")
-            if doc_id not in doc_terms_count:
-                doc_terms_count[doc_id] = set()
-            doc_terms_count[doc_id].add(term)
-
-    # Creates filtered set of docs so only docs with all common terms are searched and scored later
-    filtered_docs = set(doc_id for doc_id, terms in doc_terms_count.items() if len(terms) == len(query))
-
-    # Scored the filtered set of documents
-    for doc in filtered_docs:
-        doc_score = 0
-        for term in query:
-            if term in inverted_lists:
-                postings = inverted_lists[term]
-                for posting in postings:
-                    doc_id, tfidf_score = posting
-                    if doc_id == doc:
-                        doc_score += g(query, term) * f(tfidf_score)
-        if doc_score > 0:  # Only consider documents with a non-zero score
-            results.put((-doc_score, doc))  # Negative score for max-heap behavior
-    top_documents = []
-    while not results.empty() and k > 0:
-        doc_score, doc = results.get()
-        # print(doc, doc_score)
-        top_documents.append(doc)
-        k -= 1
-    return top_documents
-
-
-def tf_scoring(term_freq):
-    return term_freq
-
-
-def filler_scoring(query, term):
-    return 1
 
 
 def get_document_magnitudes() -> dict[str, float]:
@@ -223,6 +188,83 @@ def retrieve_links(doc_ids) -> list[str]:
         print("Error occurred while decoding JSON file")
     return []
 
+#Loads hit scores for HIT algo.
+def load_hits_scores(filename: str) -> dict[str, float]:
+    try:
+        with open(filename, 'r') as file:
+            return json.load(file)
+    except FileNotFoundError:
+        print(f"{filename} not found!")
+    return {}
+
+
+def compute_hits(graph, max_iterations=100, tol=1.0e-6):
+    # Maps doc id to continous index
+    doc_id_to_index = {doc_id: index for index, doc_id in enumerate(graph.keys())}
+    index_to_doc_id = {index: doc_id for doc_id, index in doc_id_to_index.items()}
+    
+    num_nodes = len(doc_id_to_index)
+    hubs = np.ones(num_nodes)
+    authorities = np.ones(num_nodes)
+
+    for i in range(max_iterations):
+        new_authorities = np.zeros(num_nodes)
+        new_hubs = np.zeros(num_nodes)
+
+        # Calculates and updates authority score 
+        for node, out_links in graph.items():
+            if node not in doc_id_to_index:
+                continue
+            node_index = doc_id_to_index[node]
+            for out_link in out_links:
+                if out_link in doc_id_to_index:
+                    out_link_index = doc_id_to_index[out_link]
+                    new_authorities[out_link_index] += hubs[node_index]
+        
+        # Normilization of authority scores
+        norm_authorities = np.linalg.norm(new_authorities, ord=2)
+        if norm_authorities > 0:
+            new_authorities = new_authorities / norm_authorities
+        
+        # Updates hub score
+        for node, out_links in graph.items():
+            if node not in doc_id_to_index:
+                continue
+            node_index = doc_id_to_index[node]
+            for out_link in out_links:
+                if out_link in doc_id_to_index:
+                    out_link_index = doc_id_to_index[out_link]
+                    new_hubs[node_index] += new_authorities[out_link_index]
+        
+        # Noramlization of Hub score
+        norm_hubs = np.linalg.norm(new_hubs, ord=2)
+        if norm_hubs > 0:
+            new_hubs = new_hubs / norm_hubs
+
+        # Checks for converges between two scores
+        if np.allclose(new_hubs, hubs, atol=tol) and np.allclose(new_authorities, authorities, atol=tol):
+            break
+
+        # Updates hub
+        hubs = new_hubs
+        authorities = new_authorities
+
+    # Maps the indices back to document IDs to return the results
+    return {index_to_doc_id[i]: hub_score for i, hub_score in enumerate(hubs)}, \
+           {index_to_doc_id[i]: auth_score for i, auth_score in enumerate(authorities)}
+
+def load_graph(filename):
+    with open(filename, 'r') as file:
+        return json.load(file)
+
+def save_hits_scores(hubs, authorities, hubs_filename, authorities_filename):
+    with open(hubs_filename, 'w') as file:
+        json.dump(hubs, file, indent=4)
+    with open(authorities_filename, 'w') as file:
+        json.dump(authorities, file, indent=4)
 
 if __name__ == "__main__":
+    graph = load_graph('link_graph.json')
+    hubs, authorities = compute_hits(graph)
+    save_hits_scores(hubs, authorities, 'hubs.json', 'authorities.json')
     run()
