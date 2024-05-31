@@ -14,6 +14,7 @@ unique_words = set()
 doc_ids_to_urls = {}
 # Global list to keep track of document lengths, used to normalize term freqs
 doc_lengths = []
+link_graph = {}
 
 
 def build_index(documents) -> dict[str, list[Posting]]:
@@ -26,11 +27,10 @@ def build_index(documents) -> dict[str, list[Posting]]:
     counter = 0
     offload_count = 0
     # Use enumerate to map each doc to an id (n)
-
     for n, document in enumerate(documents):
         # T <- Parse documents
         # Remove duplicates from T
-        tokens = parse(document, n)
+        tokens,links = parse(document, n)
         doc_length = sum(freq for freq in tokens.values()) if len(tokens) > 0 else 0
         doc_lengths.append(doc_length)
         # Add each token to the hashtable
@@ -45,6 +45,9 @@ def build_index(documents) -> dict[str, list[Posting]]:
             # print(f"term: {token}, tf: {term_freq} log freq weight: {log_freq_weight}")
             # Map each token to its posting (which contains this document's id)
             hashtable[token].append(Posting(n, log_freq_weight))
+        
+        #Add links to link graph
+        link_graph[n] = links
         if counter >= doc_threshold:
             unload_to_disk(hashtable, offload_count)
             offload_count += 1
@@ -62,41 +65,43 @@ def build_index(documents) -> dict[str, list[Posting]]:
 
     # Store doc ids to url mappings
     store_table_as_json("document_ids_to_urls.json", doc_ids_to_urls, True)
+    store_table_as_json("link_graph.json", link_graph, True)  # Save the link graph
 
     return hashtable
 
 
-# Parse the json file and return the tokens from the file
-def parse(document, doc_id) -> dict[str, int]:
+def parse(document, doc_id) -> tuple[dict[str, int], list[int]]:
     try:
         with open(document, 'r') as file:
-            # Create json object (can access object like a dictionary)
             json_object = json.load(file)
-
-            url = urllib.parse.urldefrag(json_object["url"]).url  # Remove fragments from urls
+            url = urllib.parse.urldefrag(json_object["url"]).url
             if url in doc_ids_to_urls.values():
-                # print("Duplicate url: " + url)
-                return {}  # skip this url
+                return {}, []  # skip this url
             doc_ids_to_urls[doc_id] = url
-            # Parse content using bs4 (passing in json_object["content"])
+            
             soup = BeautifulSoup(json_object["content"], features="lxml-xml", from_encoding=json_object["encoding"])
-            # Find all important text (bold text and header text)
             page_elements = soup.find_all(
                 ["strong", "b", "h1", "h2", "h3", "h4", "h5", "h6", "em", "p", "ul", "ol", "li", "blockquote",
-                 "a", "article", "section"])  # Still need to test for better/more valuable headers
-            # TODO: Also find a way to get the rest of the text besides the important text
+                 "a", "article", "section"])
             tokens = _tokenized_and_stem(" ".join([element.get_text() for element in page_elements]))
-            return tokens
+            
+            # Extract links
+            links = []
+            for link in soup.find_all('a', href=True):
+                link_url = urllib.parse.urldefrag(link['href']).url
+                for doc_id, doc_url in doc_ids_to_urls.items():
+                    if doc_url == link_url:
+                        links.append(doc_id)
+                        break
+            
+            return tokens, links
     except FileNotFoundError:
         print("File " + document + " not found")
     except json.JSONDecodeError as json_err:
-        print("JSON error" + json_err.msg)
+        print("JSON error: " + json_err.msg)
     except Exception as err:
         print("Error: " + str(err))
-
-    # If there is an error, just return an empty dict
-    return dict()
-
+    return {}, []
 
 def unload_to_disk(index, off_count):
     # Makes each posting serialized into dictionary so can be put in JSOn file
