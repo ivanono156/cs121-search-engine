@@ -7,14 +7,35 @@ from nltk import PorterStemmer
 import numpy as np
 
 
+def load_json_file(filename):
+    try:
+        with open(filename, 'r') as file:
+            return json.load(file)
+    except FileNotFoundError:
+        print("load_json_file: " + filename + " not found!")
+    except json.JSONDecodeError:
+        print("load_json_file: " + filename + " is not valid JSON!")
+    except Exception as e:
+        print("load_json_file: " + str(e))
+    return {}
+
+
+def write_to_json_file(data, filename):
+    try:
+        with open(filename, 'w') as file:
+            json.dump(data, file, indent=4)
+    except Exception as e:
+        print(e)
+
+
 class SearchEngine:
-    HUBS_FILE = 'hubs.json'
-    AUTHORITIES_FILE = 'authorities.json'
+    LINKS_GRAPH = "link_graph.json"
 
     def __init__(self):
-        graph = self.load_graph('link_graph.json')
-        hubs, authorities = self.compute_hits(graph)
-        self.save_hits_scores(hubs, authorities, 'hubs.json', 'authorities.json')
+        self.hubs = {}
+        self.authorities = {}
+        graph = load_json_file(self.LINKS_GRAPH)
+        self.compute_hits(graph)
 
     def run(self):
         while True:
@@ -50,8 +71,10 @@ class SearchEngine:
         for link in links:
             print(link)
 
-    # search terms = stemmed terms from the search query
-    # returns a mapping of each search term to its inverted list
+    '''
+    search terms = stemmed terms from the search query
+    returns a mapping of each search term to its inverted list
+    '''
     def get_inverted_lists(self, search_terms: list[str]) -> dict[str: list[str]]:
         inverted_lists = {}
         try:
@@ -81,15 +104,16 @@ class SearchEngine:
             print("Error occurred while decoding json file")
         return inverted_lists
 
-    '''Computes the cosine similarity between the given search query and the documents in the corpus
-     and also factors in HIT scoring algo.'''
-
+    '''
+    Computes the cosine similarity between the given search query and the documents in the corpus. 
+    Also factors in HIT scoring algorithm.
+    '''
     def cosine_scoring(self, query: list[str], k: int) -> list[int]:
         results = queue.PriorityQueue()
         inverted_lists = self.get_inverted_lists(query)
 
-        doc_magnitudes = self.get_document_magnitudes()
-        doc_lengths = self.get_document_lengths()
+        doc_magnitudes = load_json_file("document_magnitudes.json")
+        doc_lengths = load_json_file("document_lengths.json")
         total_docs = len(doc_magnitudes)
         query_tfidfs = self.compute_query_tfidfs(query, inverted_lists, total_docs)
         query_magnitude = math.sqrt(sum(math.pow(tfidf, 2) for tfidf in query_tfidfs.values()))
@@ -106,26 +130,29 @@ class SearchEngine:
                 scores[doc_id] += (tfidf_score / doc_length) * query_tfidf
 
         # Normalize scores by dividing by the doc and query magnitudes to get the cosine similarity
-        hubs = self.load_hits_scores(self.HUBS_FILE)
-        authorities = self.load_hits_scores(self.AUTHORITIES_FILE)
+
         # Normalizes hub and authority scores
-        max_hub_score = max(hubs.values()) if hubs else 1
-        max_authority_score = max(authorities.values()) if authorities else 1
+        max_hub_score = max(self.hubs.values()) if self.hubs else 1
+        max_authority_score = max(self.authorities.values()) if self.authorities else 1
         # Sets value to very small number if 0, bc cannot divide by 0
         if max_hub_score == 0:
             max_hub_score = .0000001
         if max_authority_score == 0:
             max_authority_score = .0000001
-        hubs = {doc_id: score / max_hub_score for doc_id, score in hubs.items()}
-        authorities = {doc_id: score / max_authority_score for doc_id, score in authorities.items()}
+
+        self.hubs = {doc_id: score / max_hub_score for doc_id, score in self.hubs.items()}
+        self.authorities = {doc_id: score / max_authority_score for doc_id, score in self.authorities.items()}
 
         for i in range(total_docs):
-            doc_magnitude = doc_magnitudes[str(i)]
+            doc_id = str(i)
+            doc_magnitude = doc_magnitudes[doc_id]
             denominator = doc_magnitude * query_magnitude
             doc_score = scores[i] / denominator if denominator > 0 else 0
             if doc_score > 0:
                 # Here is where the ratios of how we weight each scoring mech, feel free to change to test
-                combined_score = 0.5 * doc_score + 0.25 * hubs.get(str(i), 0) + 0.25 * authorities.get(str(i), 0)
+                hub_score = self.hubs[doc_id] if doc_id in self.hubs else 0
+                authority_score = self.authorities[doc_id] if doc_id in self.authorities else 0
+                combined_score = 0.5 * doc_score + 0.25 * hub_score + 0.25 * authority_score
                 results.put((-combined_score, i))
 
         # Retrieve the top k documents
@@ -156,28 +183,6 @@ class SearchEngine:
             term_tfidfs[term] = tfidf
         return term_tfidfs
 
-    def get_document_magnitudes(self) -> dict[str, float]:
-        try:
-            with open('document_magnitudes.json', 'r') as file:
-                doc_magnitudes = json.load(file)
-                return doc_magnitudes
-        except FileNotFoundError:
-            print("Document magnitudes file not found! Create index before searching")
-        except Exception as e:
-            print("Error occurred while reading document magnitudes: " + str(e))
-        return {}
-
-    def get_document_lengths(self) -> dict[str, float]:
-        try:
-            with open('document_lengths.json', 'r') as file:
-                doc_lengths = json.load(file)
-                return doc_lengths
-        except FileNotFoundError:
-            print("Document lengths file not found! Create index before searching")
-        except Exception as e:
-            print("Error occurred while reading document lengths: " + str(e))
-        return {}
-
     def retrieve_links(self, doc_ids) -> list[str]:
         # Opens document where we store doc_id -> urls
         try:
@@ -192,23 +197,14 @@ class SearchEngine:
             print("Error occurred while decoding JSON file")
         return []
 
-    # Loads hit scores for HIT algorithm
-    def load_hits_scores(self, filename: str) -> dict[str, float]:
-        try:
-            with open(filename, 'r') as file:
-                return json.load(file)
-        except FileNotFoundError:
-            print(f"{filename} not found!")
-        return {}
-
     def compute_hits(self, graph, max_iterations=100, tol=1.0e-6):
         # Maps doc id to continuous index
         doc_id_to_index = {doc_id: index for index, doc_id in enumerate(graph.keys())}
         index_to_doc_id = {index: doc_id for doc_id, index in doc_id_to_index.items()}
 
         num_nodes = len(doc_id_to_index)
-        hubs = np.ones(num_nodes)
-        authorities = np.ones(num_nodes)
+        temp_hubs = np.ones(num_nodes)
+        temp_authorities = np.ones(num_nodes)
 
         for i in range(max_iterations):
             new_authorities = np.zeros(num_nodes)
@@ -222,7 +218,7 @@ class SearchEngine:
                 for out_link in out_links:
                     if out_link in doc_id_to_index:
                         out_link_index = doc_id_to_index[out_link]
-                        new_authorities[out_link_index] += hubs[node_index]
+                        new_authorities[out_link_index] += temp_hubs[node_index]
 
             # Normalization of authority scores
             norm_authorities = np.linalg.norm(new_authorities, ord=2)
@@ -245,29 +241,18 @@ class SearchEngine:
                 new_hubs = new_hubs / norm_hubs
 
             # Checks for converges between two scores
-            if np.allclose(new_hubs, hubs, atol=tol) and np.allclose(new_authorities, authorities, atol=tol):
+            if np.allclose(new_hubs, temp_hubs, atol=tol) and np.allclose(new_authorities, temp_authorities, atol=tol):
                 break
 
             # Updates hub
-            hubs = new_hubs
-            authorities = new_authorities
+            temp_hubs = new_hubs
+            temp_authorities = new_authorities
 
         # Maps the indices back to document IDs to return the results
-        return {index_to_doc_id[i]: hub_score for i, hub_score in enumerate(hubs)}, \
-            {index_to_doc_id[i]: auth_score for i, auth_score in enumerate(authorities)}
-
-    def load_graph(self, filename):
-        with open(filename, 'r') as file:
-            return json.load(file)
-
-    def save_hits_scores(self, hubs, authorities, hubs_filename, authorities_filename):
-        with open(hubs_filename, 'w') as file:
-            json.dump(hubs, file, indent=4)
-        with open(authorities_filename, 'w') as file:
-            json.dump(authorities, file, indent=4)
+        self.hubs = {index_to_doc_id[i]: hub_score for i, hub_score in enumerate(temp_hubs)}
+        self.authorities = {index_to_doc_id[i]: auth_score for i, auth_score in enumerate(temp_authorities)}
 
 
 if __name__ == "__main__":
     search_engine = SearchEngine()
-
     search_engine.run()
