@@ -7,6 +7,8 @@ from nltk import PorterStemmer
 import numpy as np
 HUBS_FILE = 'hubs.json'
 AUTHORITIES_FILE = 'authorities.json'
+
+
 def run():
     while True:
         search_query = input("Enter search query (enter 'q!' to quit): ").strip()   # Remove whitespace
@@ -49,7 +51,7 @@ def search_corpus(search_terms: str) -> None:
 def get_inverted_lists(search_terms: list[str]) -> dict[str: list[str]]:
     inverted_lists = {}
     try:
-        with (open('final_index.txt', 'rb') as index_file,
+        with (open('indexes/final_index.txt', 'rb') as index_file,
               open('term_offsets.json', 'r', encoding='utf8') as offsets_file):
             term_offsets = json.load(offsets_file)
 

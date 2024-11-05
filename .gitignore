@@ -1,4 +1,6 @@
+.idea/
+indexes/
+__pycache__/
 DEV/
 ANALYST/
 *.json
-final_index.txt
