@@ -3,6 +3,7 @@ import math
 import queue
 import re
 import time
+from indexer import Indexer
 from nltk import PorterStemmer
 import numpy as np
 
@@ -29,12 +30,10 @@ def write_to_json_file(data, filename):
 
 
 class SearchEngine:
-    LINKS_GRAPH = "link_graph.json"
-
     def __init__(self):
         self.hubs = {}
         self.authorities = {}
-        graph = load_json_file(self.LINKS_GRAPH)
+        graph = load_json_file(Indexer.LINKS_GRAPH_FILE)
         self.compute_hits(graph)
 
     def run(self):
@@ -78,8 +77,8 @@ class SearchEngine:
     def get_inverted_lists(self, search_terms: list[str]) -> dict[str: list[str]]:
         inverted_lists = {}
         try:
-            with (open('indexes/final_index.txt', 'rb') as index_file,
-                  open('term_offsets.json', 'r', encoding='utf8') as offsets_file):
+            with (open(Indexer.INDEXES_DIRECTORY + Indexer.FINAL_INDEX_FILE, 'rb') as index_file,
+                  open(Indexer.TERM_OFFSETS_FILE, 'r', encoding='utf8') as offsets_file):
                 term_offsets = json.load(offsets_file)
 
                 for term in search_terms:
@@ -112,8 +111,8 @@ class SearchEngine:
         results = queue.PriorityQueue()
         inverted_lists = self.get_inverted_lists(query)
 
-        doc_magnitudes = load_json_file("document_magnitudes.json")
-        doc_lengths = load_json_file("document_lengths.json")
+        doc_magnitudes = load_json_file(Indexer.DOCUMENT_MAGNITUDES_FILE)
+        doc_lengths = load_json_file(Indexer.DOCUMENT_LENGTHS_FILE)
         total_docs = len(doc_magnitudes)
         query_tfidfs = self.compute_query_tfidfs(query, inverted_lists, total_docs)
         query_magnitude = math.sqrt(sum(math.pow(tfidf, 2) for tfidf in query_tfidfs.values()))
@@ -186,7 +185,7 @@ class SearchEngine:
     def retrieve_links(self, doc_ids) -> list[str]:
         # Opens document where we store doc_id -> urls
         try:
-            with open('document_ids_to_urls.json', 'r', encoding='utf8') as links_file:
+            with open(Indexer.DOCUMENT_IDS_TO_URLS_FILE, 'r', encoding='utf8') as links_file:
                 doc_links = json.load(links_file)
                 # Gets the link that are linked to each doc id passed in
                 links = [doc_links.get(str(doc_id), "Link not found") for doc_id in doc_ids]
