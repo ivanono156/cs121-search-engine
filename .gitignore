@@ -1,6 +1,9 @@
 .idea/
-indexes/
+.DS_Store
 __pycache__/
+
+indexes/
 DEV/
 ANALYST/
+
 *.json
