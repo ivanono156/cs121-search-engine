@@ -33,7 +33,7 @@ def stem_tokens(text_string):
     return stemmed_tokens
 
 
-def store_table_as_json(file_name, table, sort=False):
+def write_to_json_file(file_name, table, sort=False):
     try:
         with open(file_name, 'w') as file:
             json.dump(table, file, indent=4, sort_keys=sort)
@@ -45,7 +45,7 @@ def create_document_magnitudes(doc_sum_of_squares):
     doc_magnitudes = {}
     for i, sum_of_square in enumerate(doc_sum_of_squares):
         doc_magnitudes[i] = math.sqrt(sum_of_square)
-    store_table_as_json("document_magnitudes.json", doc_magnitudes, True)
+    write_to_json_file(Indexer.DOCUMENT_MAGNITUDES_FILE, doc_magnitudes, True)
 
 
 def unload_to_disk(index, off_count):
@@ -71,9 +71,16 @@ def get_index_file_path(directory, file_name):
 class Indexer:
     # Set threshold for when to offload hashtable to json file
     OFFLOAD_THRESHOLD = 5000
+    # Index files
     PARTIAL_INDEX_FILE = "partial_index#.json"
     FINAL_INDEX_FILE = "final_index.txt"
     INDEXES_DIRECTORY = "indexes/"
+    # other json files
+    TERM_OFFSETS_FILE = "term_offsets.json"
+    DOCUMENT_MAGNITUDES_FILE = "document_magnitudes.json"
+    DOCUMENT_IDS_TO_URLS_FILE = "document_ids_to_urls.json"
+    DOCUMENT_LENGTHS_FILE = "document_lengths.json"
+    LINKS_GRAPH_FILE = "link_graph.json"
 
     def __init__(self):
         self.unique_words = set()
@@ -108,16 +115,19 @@ class Indexer:
                 # Map each token to its posting (which contains this document's id)
                 hashtable[token].append(Posting(n, log_freq_weight))
 
-            if n % self.OFFLOAD_THRESHOLD == 0 or n == len(documents) - 1:
+            if (n > 0 and n % self.OFFLOAD_THRESHOLD == 0) or n == len(documents) - 1:
                 unload_to_disk(hashtable, offload_count)
                 offload_count += 1
                 del hashtable
                 hashtable = {}
+                print(f"OFFLOAD #{offload_count}: {n} documents offloaded")
+                if n == len(documents) - 1:
+                    print(f"OFFLOADING COMPLETE: n == {len(documents) - 1} (len(documents) - 1)")
 
         # Store doc ids to url mappings
-        store_table_as_json("document_ids_to_urls.json", self.doc_ids_to_urls, True)
+        write_to_json_file(self.DOCUMENT_IDS_TO_URLS_FILE, self.doc_ids_to_urls, True)
         # Save the link graph
-        store_table_as_json("link_graph.json", self.link_graph, True)
+        write_to_json_file(self.LINKS_GRAPH_FILE, self.link_graph, True)
 
         # Merges all partial indexes into one
         return self.merge_partial_indexes(offload_count)
@@ -206,22 +216,21 @@ class Indexer:
                 s = token + ":" + postings_str + "\n"
                 file.write(s.encode('utf-8'))  # write string as bytes to file
 
-        store_table_as_json("document_lengths.json", {i: length for i, length in enumerate(self.doc_lengths)}, True)
-        store_table_as_json("term_offsets.json", token_offsets, True)
+        write_to_json_file(self.DOCUMENT_LENGTHS_FILE, {i: length for i, length in enumerate(self.doc_lengths)}, True)
+        write_to_json_file(self.TERM_OFFSETS_FILE, token_offsets, True)
         create_document_magnitudes(doc_sum_of_squares)
 
         return final_index
 
 
 if __name__ == "__main__":
-    word_count = 0
     # Path to the folder containing the documents
     folder_path = sys.argv[1]
-    indexer = Indexer()
     docs = get_documents(folder_path)
     print("Building index...")
+    indexer = Indexer()
     index_table = indexer.build_index(docs)
     print("Building index complete")
 
-    print("The number of indexed documents:", len(docs))
+    print("The number of indexed documents:", len(indexer.doc_ids_to_urls))
     print("The number of unique words:", len(indexer.unique_words))
