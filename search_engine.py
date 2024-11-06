@@ -43,7 +43,11 @@ class SearchEngine:
                 print("Goodbye")
                 break
 
-            self.search_corpus(search_query)
+            links = self.search_corpus(search_query)
+
+            print(f"Top {len(links)} Results:")
+            for link in links:
+                print(link)
 
     def parse_query(self, search_query: str) -> list[str]:
         stemmer = PorterStemmer()
@@ -54,7 +58,7 @@ class SearchEngine:
         # print("Stemmed tokens: " + str(stemmed))
         return stemmed
 
-    def search_corpus(self, search_terms: str) -> None:
+    def search_corpus(self, search_terms: str) -> list[str]:
         start_time = time.time()
 
         parsed_query = self.parse_query(search_terms)
@@ -64,11 +68,9 @@ class SearchEngine:
         links = self.retrieve_links(results)
 
         end_time = time.time()
-        print(f"Search query took {(end_time - start_time) * 1000} milliseconds")
+        print(f"Search query '{search_terms}' took {(end_time - start_time) * 1000} milliseconds")
 
-        print(f"Top {len(links)} Results:")
-        for link in links:
-            print(link)
+        return links
 
     '''
     search terms = stemmed terms from the search query
@@ -182,18 +184,20 @@ class SearchEngine:
             term_tfidfs[term] = tfidf
         return term_tfidfs
 
-    def retrieve_links(self, doc_ids) -> list[str]:
+    def retrieve_links(self, doc_ids: list[int]) -> list[str]:
         # Opens document where we store doc_id -> urls
         try:
             with open(Indexer.DOCUMENT_IDS_TO_URLS_FILE, 'r', encoding='utf8') as links_file:
                 doc_links = json.load(links_file)
                 # Gets the link that are linked to each doc id passed in
-                links = [doc_links.get(str(doc_id), "Link not found") for doc_id in doc_ids]
+                links = [doc_links[str(doc_id)] if str(doc_id) in doc_links else "Link not found" for doc_id in doc_ids]
                 return links
         except FileNotFoundError:
             print("Links file not found! Create the links file before searching")
-        except json.JSONDecodeError:
-            print("Error occurred while decoding JSON file")
+        except json.JSONDecodeError as json_err:
+            print("Json error occurred while retrieving links: " + str(json_err))
+        except Exception as e:
+            print("Error occurred while retrieving links: " + str(e))
         return []
 
     def compute_hits(self, graph, max_iterations=100, tol=1.0e-6):
