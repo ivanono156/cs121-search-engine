@@ -160,6 +160,7 @@ class Indexer:
 
     def merge_partial_indexes(self, off_count):
         """Merges all partial indexes into one final index file and dictionary"""
+        print("Merging partial indexes into final index")
         # Initialize final mapping
         final_index = {}
 
