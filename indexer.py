@@ -19,63 +19,43 @@ def get_documents(directory: str) -> list[str]:
     return files
 
 
-def stem_tokens(text_string):
+def stem_tokens(text_string: str) -> dict[str, int]:
     # Apply stemming to each token
     stemmer = PorterStemmer()
     stemmed_tokens = {}
     tokens = re.findall(r'\b\w+\b', text_string.lower())
     for token in tokens:
-        rev_token = stemmer.stem(token)
-        if rev_token not in stemmed_tokens:
-            stemmed_tokens[rev_token] = 1
+        stemmed_token = stemmer.stem(token)
+        if stemmed_token not in stemmed_tokens:
+            stemmed_tokens[stemmed_token] = 1
         else:
-            stemmed_tokens[rev_token] += 1
+            stemmed_tokens[stemmed_token] += 1
     return stemmed_tokens
 
 
-def write_to_json_file(file_name, table, sort=False):
+def write_to_json_file(data: dict, file_name: str) -> None:
     try:
         with open(file_name, 'w') as file:
-            json.dump(table, file, indent=4, sort_keys=sort)
+            json.dump(data, file, indent=4, sort_keys=True)
     except Exception as e:
-        print("Could not write to file " + file_name + ": " + str(e))
+        print("Could not write to json file " + file_name + ": " + str(e))
 
 
-def create_document_magnitudes(doc_sum_of_squares):
-    doc_magnitudes = {}
-    for i, sum_of_square in enumerate(doc_sum_of_squares):
-        doc_magnitudes[i] = math.sqrt(sum_of_square)
-    write_to_json_file(Indexer.DOCUMENT_MAGNITUDES_FILE, doc_magnitudes, True)
-
-
-def unload_to_disk(index, off_count):
-    # Makes each posting serialized into dictionary so can be put in JSOn file
-    serialized_index = {
-        term: [posting.to_dict() for posting in postings] for term, postings in index.items()
-    }
-
-    filename = get_index_file_path(Indexer.INDEXES_DIRECTORY,
-                                   Indexer.PARTIAL_INDEX_FILE.replace("#", str(off_count)))
-    # Write the serialized index to disk
-    with open(filename, 'w') as file:
-        json.dump(serialized_index, file, indent=4, sort_keys=True)  # Printing with indent of 4 for readability
-
-
-def get_index_file_path(directory, file_name):
+def ensure_directory_exists(directory: str) -> None:
     if not os.path.exists(directory):
         os.makedirs(directory)
         print("Directory " + directory + " created")
-    return os.path.join(directory, file_name)
 
 
 class Indexer:
     # Set threshold for when to offload hashtable to json file
-    OFFLOAD_THRESHOLD = 5000
+    OFFLOAD_THRESHOLD = 1000
     # Index files
+    INDEXES_DIRECTORY = "indexes"
     PARTIAL_INDEX_FILE = "partial_index#.json"
     FINAL_INDEX_FILE = "final_index.txt"
-    INDEXES_DIRECTORY = "indexes/"
-    # other json files
+    # Helper files
+    HELPERS_DIRECTORY = "helpers"
     TERM_OFFSETS_FILE = "term_offsets.json"
     DOCUMENT_MAGNITUDES_FILE = "document_magnitudes.json"
     DOCUMENT_IDS_TO_URLS_FILE = "document_ids_to_urls.json"
@@ -89,6 +69,8 @@ class Indexer:
         # List to keep track of document lengths, used to normalize term freqs
         self.doc_lengths = []
         self.link_graph = {}
+        ensure_directory_exists(self.INDEXES_DIRECTORY)
+        ensure_directory_exists(self.HELPERS_DIRECTORY)
 
     def build_index(self, documents) -> dict[str, list[Posting]]:
         # Create hashtable
@@ -116,18 +98,17 @@ class Indexer:
                 hashtable[token].append(Posting(n, log_freq_weight))
 
             if (n > 0 and n % self.OFFLOAD_THRESHOLD == 0) or n == len(documents) - 1:
-                unload_to_disk(hashtable, offload_count)
+                self.unload_to_disk(hashtable, offload_count)
                 offload_count += 1
                 del hashtable
                 hashtable = {}
-                print(f"OFFLOAD #{offload_count}: {n} documents offloaded")
-                if n == len(documents) - 1:
-                    print(f"OFFLOADING COMPLETE: n == {len(documents) - 1} (len(documents) - 1)")
+                percentage = round(n / (len(documents) - 1) * 100, 2)
+                print(f"OFFLOAD #{offload_count} ({percentage}% complete): {n}/{len(documents)-1} documents offloaded")
 
-        # Store doc ids to url mappings
-        write_to_json_file(self.DOCUMENT_IDS_TO_URLS_FILE, self.doc_ids_to_urls, True)
-        # Save the link graph
-        write_to_json_file(self.LINKS_GRAPH_FILE, self.link_graph, True)
+        write_to_json_file(self.doc_ids_to_urls,
+                           os.path.join(self.HELPERS_DIRECTORY, self.DOCUMENT_IDS_TO_URLS_FILE))
+        write_to_json_file(self.link_graph,
+                           os.path.join(self.HELPERS_DIRECTORY, self.LINKS_GRAPH_FILE))
 
         # Merges all partial indexes into one
         return self.merge_partial_indexes(offload_count)
@@ -168,6 +149,15 @@ class Indexer:
             print("Error: " + str(err))
         return {}
 
+    def unload_to_disk(self, index, off_count):
+        # Makes each posting serialized into dictionary so can be put in JSOn file
+        serialized_index = {
+            term: [posting.to_dict() for posting in postings] for term, postings in index.items()
+        }
+
+        write_to_json_file(serialized_index,
+                           os.path.join(self.INDEXES_DIRECTORY, self.PARTIAL_INDEX_FILE.replace("#", str(off_count))))
+
     # Merges all partial indexes into one final index file and dictionary
     def merge_partial_indexes(self, off_count):
         # Initialize final mapping
@@ -175,15 +165,22 @@ class Indexer:
 
         # Will go through each partial index made and collect the information needed for the final index
         for i in range(off_count):
-            filename = get_index_file_path(Indexer.INDEXES_DIRECTORY,
-                                           Indexer.PARTIAL_INDEX_FILE.replace("#", str(i)))
-            with open(filename, 'r') as file:
-                partial_index = json.load(file)
-                for token, postings in partial_index.items():
-                    if token in final_index:
-                        final_index[token].extend(postings)
-                    else:
-                        final_index[token] = postings
+            filename = os.path.join(self.INDEXES_DIRECTORY, self.PARTIAL_INDEX_FILE.replace("#", str(i)))
+            try:
+                with open(filename, 'r') as file:
+                    partial_index = json.load(file)
+                    for token, postings in partial_index.items():
+                        if token in final_index:
+                            final_index[token].extend(postings)
+                        else:
+                            final_index[token] = postings
+                os.remove(filename)
+            except FileNotFoundError:
+                print("Error occurred while merging partial indexes: File " + filename + " not found")
+            except OSError:
+                pass
+            except Exception as e:
+                print("Error occurred while merging partial indexes: " + str(e))
 
         # Dict to keep track of terms and their positions in the index file (for use with seek later)
         token_offsets = {}
@@ -191,34 +188,46 @@ class Indexer:
         # This will be used to calculate each document's vector magnitude when performing the search queries
         doc_sum_of_squares = [0.0] * total_docs  # initialize sum of squares for each doc to zero
 
-        final_index_file = get_index_file_path(self.INDEXES_DIRECTORY, self.FINAL_INDEX_FILE)
-        with open(final_index_file, 'wb') as file:
-            # iterate through the dictionary in alphabetical order
-            for token, postings in sorted(final_index.items(), key=lambda kv_pair: kv_pair[0]):
-                doc_freq = len(postings)  # the number of documents that contain this term/token
-                idf = math.log10(total_docs / doc_freq)  # calculate idf score for this token
-                # combine the token's idf score with the existing tf score for each posting
-                for posting in postings:
-                    tf = posting['tfidf_score']  # get the existing tf score
-                    tfidf_score = tf * idf  # calculate the raw tfidf score
-                    posting['tfidf_score'] = round(tfidf_score, 2)  # round tfidf score to 2 decimal places and store it
-                    # Compute the sum of squares for this document
-                    doc_id = int(posting['document_id'])
-                    doc_len = self.doc_lengths[doc_id]
-                    doc_sum_of_squares[doc_id] += math.pow(tf / doc_len * idf, 2)  # square tfidf score and add to sum
-                    # print(f"term: {token}, tf: {tf}, idf: {idf}, tfidf_score: {tfidf_score}")
+        final_index_file = os.path.join(self.INDEXES_DIRECTORY, self.FINAL_INDEX_FILE)
+        try:
+            with open(final_index_file, 'wb') as file:
+                # iterate through the dictionary in alphabetical order
+                for token, postings in sorted(final_index.items(), key=lambda kv_pair: kv_pair[0]):
+                    doc_freq = len(postings)  # the number of documents that contain this term/token
+                    idf = math.log10(total_docs / doc_freq)  # calculate idf score for this token
+                    # combine the token's idf score with the existing tf score for each posting
+                    for posting in postings:
+                        tf = posting['tfidf_score']  # get the existing tf score
+                        tfidf_score = tf * idf  # calculate the raw tfidf score
+                        posting['tfidf_score'] = round(tfidf_score, 2)  # round tfidf score to 2 decimal places
+                        # Compute the sum of squares for this document
+                        doc_id = int(posting['document_id'])
+                        doc_len = self.doc_lengths[doc_id]
+                        # square tfidf score and add to sum
+                        doc_sum_of_squares[doc_id] += math.pow(tf / doc_len * idf, 2)
+                        # print(f"term: {token}, tf: {tf}, idf: {idf}, tfidf_score: {tfidf_score}")
 
-                offset = file.tell()
-                token_offsets[token] = offset
-                # postings is a list of dicts
-                postings_str = ";".join([f"({p['document_id']},{p['tfidf_score']})" for p in postings])
-                # print("T,P: " + token + ":" + postings_str)
-                s = token + ":" + postings_str + "\n"
-                file.write(s.encode('utf-8'))  # write string as bytes to file
+                    offset = file.tell()
+                    token_offsets[token] = offset
+                    # postings is a list of dicts
+                    postings_str = ";".join([f"({p['document_id']},{p['tfidf_score']})" for p in postings])
+                    # print("T,P: " + token + ":" + postings_str)
+                    s = token + ":" + postings_str + "\n"
+                    file.write(s.encode('utf-8'))  # write string as bytes to file
+        except Exception as e:
+            print(e)
 
-        write_to_json_file(self.DOCUMENT_LENGTHS_FILE, {i: length for i, length in enumerate(self.doc_lengths)}, True)
-        write_to_json_file(self.TERM_OFFSETS_FILE, token_offsets, True)
-        create_document_magnitudes(doc_sum_of_squares)
+        # Create the document magnitudes for each doc
+        doc_magnitudes = {}
+        for i, sum_of_square in enumerate(doc_sum_of_squares):
+            doc_magnitudes[i] = math.sqrt(sum_of_square)
+
+        write_to_json_file({i: length for i, length in enumerate(self.doc_lengths)},
+                           os.path.join(self.HELPERS_DIRECTORY, self.DOCUMENT_LENGTHS_FILE))
+        write_to_json_file(token_offsets,
+                           os.path.join(self.HELPERS_DIRECTORY, self.TERM_OFFSETS_FILE))
+        write_to_json_file(doc_magnitudes,
+                           os.path.join(self.HELPERS_DIRECTORY, self.DOCUMENT_MAGNITUDES_FILE))
 
         return final_index
 
@@ -226,7 +235,9 @@ class Indexer:
 if __name__ == "__main__":
     # Path to the folder containing the documents
     folder_path = sys.argv[1]
+    print("Getting documents...")
     docs = get_documents(folder_path)
+
     print("Building index...")
     indexer = Indexer()
     index_table = indexer.build_index(docs)

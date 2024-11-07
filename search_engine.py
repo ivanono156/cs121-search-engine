@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import queue
 import re
 import time
@@ -21,19 +22,11 @@ def load_json_file(filename):
     return {}
 
 
-def write_to_json_file(data, filename):
-    try:
-        with open(filename, 'w') as file:
-            json.dump(data, file, indent=4)
-    except Exception as e:
-        print(e)
-
-
 class SearchEngine:
     def __init__(self):
         self.hubs = {}
         self.authorities = {}
-        graph = load_json_file(Indexer.LINKS_GRAPH_FILE)
+        graph = load_json_file(os.path.join(Indexer.HELPERS_DIRECTORY, Indexer.LINKS_GRAPH_FILE))
         self.compute_hits(graph)
 
     def run(self):
@@ -79,8 +72,10 @@ class SearchEngine:
     def get_inverted_lists(self, search_terms: list[str]) -> dict[str: list[str]]:
         inverted_lists = {}
         try:
-            with (open(Indexer.INDEXES_DIRECTORY + Indexer.FINAL_INDEX_FILE, 'rb') as index_file,
-                  open(Indexer.TERM_OFFSETS_FILE, 'r', encoding='utf8') as offsets_file):
+            final_index_file = os.path.join(Indexer.INDEXES_DIRECTORY, Indexer.FINAL_INDEX_FILE)
+            term_offsets_file = os.path.join(Indexer.HELPERS_DIRECTORY, Indexer.TERM_OFFSETS_FILE)
+            with (open(final_index_file, 'rb') as index_file,
+                  open(term_offsets_file, 'r', encoding='utf8') as offsets_file):
                 term_offsets = json.load(offsets_file)
 
                 for term in search_terms:
@@ -100,9 +95,11 @@ class SearchEngine:
                         inverted_lists[term].append((int(doc_id), float(term_freq)))
                     # print(f"{term}: {inverted_lists[term]}")
         except FileNotFoundError:
-            print("Index file not found! Create the index file before searching")
-        except json.JSONDecodeError:
-            print("Error occurred while decoding json file")
+            print("Inverted index file not found! Create the index file before searching")
+        except json.JSONDecodeError as json_err:
+            print("Json Error occurred while getting inverted lists: " + str(json_err))
+        except Exception as e:
+            print("Error occurred while getting inverted lists: " + str(e))
         return inverted_lists
 
     '''
@@ -113,8 +110,8 @@ class SearchEngine:
         results = queue.PriorityQueue()
         inverted_lists = self.get_inverted_lists(query)
 
-        doc_magnitudes = load_json_file(Indexer.DOCUMENT_MAGNITUDES_FILE)
-        doc_lengths = load_json_file(Indexer.DOCUMENT_LENGTHS_FILE)
+        doc_magnitudes = load_json_file(os.path.join(Indexer.HELPERS_DIRECTORY, Indexer.DOCUMENT_MAGNITUDES_FILE))
+        doc_lengths = load_json_file(os.path.join(Indexer.HELPERS_DIRECTORY, Indexer.DOCUMENT_LENGTHS_FILE))
         total_docs = len(doc_magnitudes)
         query_tfidfs = self.compute_query_tfidfs(query, inverted_lists, total_docs)
         query_magnitude = math.sqrt(sum(math.pow(tfidf, 2) for tfidf in query_tfidfs.values()))
@@ -187,7 +184,8 @@ class SearchEngine:
     def retrieve_links(self, doc_ids: list[int]) -> list[str]:
         # Opens document where we store doc_id -> urls
         try:
-            with open(Indexer.DOCUMENT_IDS_TO_URLS_FILE, 'r', encoding='utf8') as links_file:
+            doc_ids_to_urls_file = os.path.join(Indexer.HELPERS_DIRECTORY, Indexer.DOCUMENT_IDS_TO_URLS_FILE)
+            with open(doc_ids_to_urls_file, 'r', encoding='utf8') as links_file:
                 doc_links = json.load(links_file)
                 # Gets the link that are linked to each doc id passed in
                 links = [doc_links[str(doc_id)] if str(doc_id) in doc_links else "Link not found" for doc_id in doc_ids]
