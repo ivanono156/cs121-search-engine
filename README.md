@@ -9,10 +9,18 @@ Ex:
     python3 indexer.py "home/user/path-to-folder/DEV"
 
 ### To run the search engine:
-- Run the start_my_engine.py file from the command line.    
 
-Ex: 
-        
-    python3 start_my_engine.py
+#### Option 1: From the command line
+- Run the search_engine.py file from the command line.
 
+Ex:
+
+    python3 search_engine.py
 - From there you will be prompted to input a search query.
+
+#### Option 2: With the Streamlit User Interface
+- Run the search_engine_UI.py file from the command line using streamlit
+
+Ex:
+
+    streamlit run search_engine_UI.py
