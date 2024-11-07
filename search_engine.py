@@ -65,11 +65,13 @@ class SearchEngine:
 
         return links
 
-    '''
-    search terms = stemmed terms from the search query
-    returns a mapping of each search term to its inverted list
-    '''
     def get_inverted_lists(self, search_terms: list[str]) -> dict[str: list[str]]:
+        """Retrieves the inverted lists for each of the given search terms.
+        Parameters:
+            search_terms (list[str]): stemmed terms from the search query
+        Returns:
+             dict: A mapping of each search term to its inverted list
+        """
         inverted_lists = {}
         try:
             final_index_file = os.path.join(Indexer.INDEXES_DIRECTORY, Indexer.FINAL_INDEX_FILE)
@@ -102,11 +104,9 @@ class SearchEngine:
             print("Error occurred while getting inverted lists: " + str(e))
         return inverted_lists
 
-    '''
-    Computes the cosine similarity between the given search query and the documents in the corpus. 
-    Also factors in HIT scoring algorithm.
-    '''
     def cosine_scoring(self, query: list[str], k: int) -> list[int]:
+        """Computes the cosine similarity between the given search query and the documents in the corpus.
+        Also factors in HIT scoring algorithm."""
         results = queue.PriorityQueue()
         inverted_lists = self.get_inverted_lists(query)
 
@@ -182,7 +182,7 @@ class SearchEngine:
         return term_tfidfs
 
     def retrieve_links(self, doc_ids: list[int]) -> list[str]:
-        # Opens document where we store doc_id -> urls
+        """Retrieves the associated links for each document from the document ids to urls file"""
         try:
             doc_ids_to_urls_file = os.path.join(Indexer.HELPERS_DIRECTORY, Indexer.DOCUMENT_IDS_TO_URLS_FILE)
             with open(doc_ids_to_urls_file, 'r', encoding='utf8') as links_file:
@@ -199,7 +199,7 @@ class SearchEngine:
         return []
 
     def compute_hits(self, graph, max_iterations=100, tol=1.0e-6):
-        # Maps doc id to continuous index
+        """Maps doc id to continuous index"""
         doc_id_to_index = {doc_id: index for index, doc_id in enumerate(graph.keys())}
         index_to_doc_id = {index: doc_id for doc_id, index in doc_id_to_index.items()}
 

@@ -10,7 +10,7 @@ from posting import Posting
 
 
 def get_documents(directory: str) -> list[str]:
-    # Transform the relative paths into absolute paths
+    """Transform the relative paths into absolute paths"""
     files = []
     for root, _, filenames in os.walk(directory):
         for file in filenames:
@@ -20,7 +20,7 @@ def get_documents(directory: str) -> list[str]:
 
 
 def stem_tokens(text_string: str) -> dict[str, int]:
-    # Apply stemming to each token
+    """Apply stemming to each token"""
     stemmer = PorterStemmer()
     stemmed_tokens = {}
     tokens = re.findall(r'\b\w+\b', text_string.lower())
@@ -150,7 +150,7 @@ class Indexer:
         return {}
 
     def unload_to_disk(self, index, off_count):
-        # Makes each posting serialized into dictionary so can be put in JSOn file
+        # Serialize each posting into a dictionary so that it can be put into a JSON file
         serialized_index = {
             term: [posting.to_dict() for posting in postings] for term, postings in index.items()
         }
@@ -158,8 +158,8 @@ class Indexer:
         write_to_json_file(serialized_index,
                            os.path.join(self.INDEXES_DIRECTORY, self.PARTIAL_INDEX_FILE.replace("#", str(off_count))))
 
-    # Merges all partial indexes into one final index file and dictionary
     def merge_partial_indexes(self, off_count):
+        """Merges all partial indexes into one final index file and dictionary"""
         # Initialize final mapping
         final_index = {}
 
